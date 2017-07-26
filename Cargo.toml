@@ -1,0 +1,8 @@
+[package]
+name = "helloworldrs"
+version = "0.1.0"
+authors = ["gediminas <gediminas@messagebird.com>"]
+
+[dependencies]
+
+nom = "^3.2"
