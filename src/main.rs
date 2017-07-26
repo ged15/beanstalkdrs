@@ -73,143 +73,33 @@ impl ParseError {
             _ => false,
         }
     }
-
-    fn response_string(&self) -> String {
-        match *self {
-            ParseError::Incomplete => "Incomplete data".to_owned(),
-            ParseError::BadProtocol(ref s) => format!("Protocol error: {}", s),
-            ParseError::InvalidArgument => "Invalid argument".to_owned(),
-        }
-    }
 }
 
-/// Parses the length of the paramenter in the slice
-/// Upon success, it returns a tuple with the length of the argument and the
-/// length of the parsed length.
-fn parse_int(input: &[u8], len: usize, name: &str) -> Result<(Option<usize>, usize), ParseError> {
-    if input.len() == 0 {
-        return Err(ParseError::Incomplete);
-    }
-    let mut i = 0;
-    let mut argc = 0;
-    let mut argco = None;
-    while input[i] as char != '\r' {
-        let c = input[i] as char;
-        if argc == 0 && c == '-' {
-            while input[i] as char != '\r' {
-                i += 1;
-            }
-            argco = None;
-            break;
-        } else if c < '0' || c > '9' {
-            return Err(ParseError::BadProtocol(format!("invalid {} length", name)));
-        }
-        argc *= 10;
-        argc += input[i] as usize - '0' as usize;
-        i += 1;
-        if i == len {
-            return Err(ParseError::Incomplete);
-        }
-        argco = Some(argc);
-    }
-    i += 1;
-    if i == len {
-        return Err(ParseError::Incomplete);
-    }
-    if input[i] as char != '\n' {
-        return Err(ParseError::BadProtocol(format!("expected \\r\\n separator, got \\r{}",
-                                                   input[i] as char)));
-    }
-    return Ok((argco, i + 1));
-}
+named!(beanstalk_request <&[u8], (&[u8], Option<&[u8]>)>,
+    do_parse!(
+        command: alt!(tag!("put") | tag!("reserve")) >>
+        opt!(space) >>
+        data: opt!(alphanumeric) >>
+        (command, data)
+    )
+);
 
-pub fn parse(input: &[u8]) -> Result<(ParsedCommand, usize), ParseError> {
-    let mut pos = 0;
-
-    named!(beanstalk_request <&[u8], (&[u8], Option<&[u8]>)>,
-        do_parse!(
-            command: alt!(tag!("put") | tag!("reserve")) >>
-            space >>
-            data: opt!(alphanumeric) >>
-            (command, data)
-        )
-    );
-
-    let res = beanstalk_request(input);
-
-    match res {
-        IResult::Done(i, o) => Ok((ParsedCommand::new(input, Vec::new()), input.len())),
+fn parse_nom(input: &[u8]) -> Result<(Request, usize), ParseError> {
+    match beanstalk_request(input) {
+        IResult::Done(i, o) => {
+            let command = match o.0 {
+                b"put" => Command::Put,
+                b"reserve" => Command::Reserve,
+                _ => panic!("unknown command")
+            };
+            Ok((
+                Request {command: command, data: o.1},
+                input.len()
+            ))
+        },
         IResult::Incomplete(_) => Err(ParseError::Incomplete),
         IResult::Error(_) => Err(ParseError::InvalidArgument),
     }
-
-//    println!("parsed {:?}", res);
-
-//    panic!("aaa");
-
-//    Err(ParseError::Incomplete)
-
-//    Ok((ParsedCommand::new(input, Vec::new()), pos))
-
-//    while input.len() > pos && input[pos] as char == '\r' {
-//        if pos + 1 < input.len() {
-//            if input[pos + 1] as char != '\n' {
-//                return Err(ParseError::BadProtocol(format!("expected \\r\\n separator, got \
-//                                                            \\r{}",
-//                                                           input[pos + 1] as char)));
-//            }
-//            pos += 2;
-//        } else {
-//            return Err(ParseError::Incomplete);
-//        }
-//    }
-//    if pos >= input.len() {
-//        return Err(ParseError::Incomplete);
-//    }
-////    if input[pos] as char != '*' {
-////        return Err(ParseError::BadProtocol(format!("expected '*', got '{}'", input[pos] as char)));
-////    }
-//    pos += 1;
-//    let len = input.len();
-//    let (argco, intlen) = parse_int(&input[pos..len], len - pos, "multibulk")?;
-//    let argc = match argco {
-//        Some(i) => i,
-//        None => 0,
-//    };
-//    pos += intlen;
-////    if argc > 1024 * 1024 {
-////        return Err(ParseError::BadProtocol("invalid multibulk length".to_owned()));
-////    }
-//    let mut argv = Vec::new();
-//    for i in 0..argc {
-//        if input.len() == pos {
-//            return Err(ParseError::Incomplete);
-//        }
-//        if input[pos] as char != '$' {
-//            return Err(ParseError::BadProtocol(format!("expected '$', got '{}'",
-//                                                       input[pos] as char)));
-//        }
-//        pos += 1;
-//        let (argleno, arglenlen) = parse_int(&input[pos..len], len - pos, "bulk")?;
-//        let arglen = match argleno {
-//            Some(i) => i,
-//            None => return Err(ParseError::BadProtocol("invalid bulk length".to_owned())),
-//        };
-//        if arglen > 512 * 1024 * 1024 {
-//            return Err(ParseError::BadProtocol("invalid bulk length".to_owned()));
-//        }
-//        pos += arglenlen;
-//        let arg = Argument {
-//            pos: pos,
-//            len: arglen,
-//        };
-//        argv.push(arg);
-//        pos += arglen + 2;
-//        if pos > len || (pos == len && i != argc - 1) {
-//            return Err(ParseError::Incomplete);
-//        }
-//    }
-//    Ok((ParsedCommand::new(input, argv), pos))
 }
 
 pub struct Parser {
@@ -253,54 +143,30 @@ impl Parser {
 
     pub fn is_incomplete(&self) -> bool {
         let data = &(&*self.data)[self.position..self.written];
-        match parse(data) {
+        match parse_nom(data) {
             Ok(_) => false,
             Err(e) => e.is_incomplete(),
         }
     }
 
-    pub fn next(&mut self) -> Result<ParsedCommand, ParseError> {
+    pub fn next(&mut self) -> Result<Request, ParseError> {
         let data = &(&*self.data)[self.position..self.written];
-        let (r, len) = try!(parse(data));
+        let (r, len) = try!(parse_nom(data));
         self.position += len;
         Ok(r)
     }
 }
 
+#[derive(Debug)]
 enum Command {
     Put,
     Reserve,
 }
 
-struct Request {
+#[derive(Debug)]
+pub struct Request<'a> {
     command: Command,
-    data: Option<String>,
-}
-
-fn handle_client(mut stream: TcpStream) -> Request {
-    let mut buf = Vec::new();
-
-    stream.read_to_end(&mut buf);
-
-    println!("Received input {}", String::from_utf8_lossy(&buf));
-
-    let cmd = match String::from_utf8(buf) {
-        Ok(s) => s,
-        Err(_) => panic!("Cannot parse input"),
-    };
-
-    let mut comm;
-    if cmd.starts_with("put ") {
-        comm = Command::Put;
-        let mut iter = cmd.split_whitespace();
-        iter.next();
-        let data = iter.next();
-        Request {command: Command::Put, data: Some(data.unwrap().to_string())}
-    } else if cmd.starts_with("reserve") {
-        Request {command: Command::Reserve, data: Some(String::from("ha"))}
-    } else {
-        panic!("Bad command")
-    }
+    data: Option<&'a [u8]>,
 }
 
 struct Job {
@@ -344,11 +210,9 @@ impl Server {
     fn run(&mut self) {
         let mut parser = Parser::new();
 
-        let mut this_command: Option<OwnedParsedCommand>;
-        let mut next_command: Option<OwnedParsedCommand> = None;
         loop {
             // FIXME: is_incomplete parses the command a second time
-            if next_command.is_none() && parser.is_incomplete() {
+            if parser.is_incomplete() {
                 parser.allocate();
                 let len = {
                     let pos = parser.written;
@@ -359,7 +223,6 @@ impl Server {
                         Ok(r) => r,
                         Err(err) => {
                             println!("Reading from client: {:?}", err);
-//                            sendlog!(sender, Verbose, "Reading from client: {:?}", err);
                             break;
                         }
                     }
@@ -369,52 +232,43 @@ impl Server {
                 // client closed connection
                 if len == 0 {
                     println!("Client closed connection");
-//                    sendlog!(sender, Verbose, "Client closed connection");
                     break;
                 }
             }
 
-            // was there an error during the execution?
-            let mut error = false;
-
-            this_command = next_command;
-            next_command = None;
-
-            // try to parse received command
-            let parsed_command = match this_command {
-                Some(ref c) => c.get_command(),
-                None => {
-                    match parser.next() {
-                        Ok(p) => p,
-                        Err(err) => {
-                            match err {
-                                // if it's incomplete, keep adding to the buffer
-                                ParseError::Incomplete => {
-                                    println!("Incomplete");
-                                    continue;
-                                }
-                                ParseError::BadProtocol(s) => {
-                                    println!("Bad protocol {:?}", s);
-//                                    let _ = stream_tx.send(Some(Response::Error(s)));
-                                    break;
-                                }
-                                _ => {
-                                    println!("Protocol error from client: {:?}", err);
-//                                    sendlog!(sender,
-//                                             Verbose,
-//                                             "Protocol error from client: {:?}",
-//                                             err);
-                                    break;
-                                }
-                            }
+            match parser.next() {
+                Ok(request) => {
+                    match request.command {
+                        Command::Put => {
+                            self.put(1, 1, 1, "aaa".to_string());
+                        },
+                        Command::Reserve => {
+                            let job = self.reserve();
+                            println!("reserved job {}", job.data);
+//                            write_stream.write(job.data.as_bytes());
+                        },
+                    };
+                },
+                Err(err) => {
+                    match err {
+                        // if it's incomplete, keep adding to the buffer
+                        ParseError::Incomplete => {
+                            println!("Incomplete");
+                            continue;
+                        }
+                        ParseError::BadProtocol(s) => {
+                            println!("Bad protocol {:?}", s);
+                            break;
+                        }
+                        _ => {
+                            println!("Protocol error from client: {:?}", err);
+                            break;
                         }
                     }
                 }
             };
 
-            println!("{:?}", parsed_command);
-
-//            parsed_command
+//            println!("{:?}", request);
         }
     }
 }
