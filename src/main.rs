@@ -2,7 +2,7 @@
 extern crate nom;
 
 use std::iter;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::str;
 use nom::{IResult, space, alphanumeric};
@@ -124,7 +124,7 @@ struct Job {
     priority: u8,
     delay: u8,
     ttr: u8,
-    data: String,
+    data: Vec<u8>,
 }
 
 struct Server {
@@ -140,15 +140,13 @@ impl Server {
         }
     }
 
-    fn put(self: &mut Self, pri: u8, delay: u8, ttr: u8, data: String) {
+    fn put(self: &mut Self, pri: u8, delay: u8, ttr: u8, data: Vec<u8>) {
         self.queue.push(Job {
             priority: pri,
             delay: delay,
             ttr: ttr,
-            data: data.clone(),
+            data: data,
         });
-
-//        println!("new job with data {:?}", data);
     }
 
     fn reserve(self: &mut Self) -> Job {
@@ -162,7 +160,6 @@ impl Server {
         let mut parser = Parser::new();
 
         loop {
-            // FIXME: is_incomplete parses the command a second time
             if parser.is_incomplete() {
                 parser.allocate();
                 let len = {
@@ -191,11 +188,19 @@ impl Server {
                 Ok(request) => {
                     match request.command {
                         Command::Put => {
-                            self.put(1, 1, 1, "aaa".to_string());
+                            let mut data = Vec::new();
+                            data.extend_from_slice(request.data.unwrap());
+                            self.put(1, 1, 1, data);
+                            self.stream.write(b"INSERTED\r\n");
                         },
                         Command::Reserve => {
                             let job = self.reserve();
-//                            println!("reserved job {}", job.data);
+
+                            let header = format!("RESERVED {}\r\n", job.data.len());
+
+                            self.stream.write(header.as_bytes());
+                            self.stream.write(job.data.as_slice());
+                            self.stream.write(b"\r\n");
                         },
                     };
                 },
@@ -230,22 +235,6 @@ fn main() {
             Ok(stream) => {
                 let mut server = Server::new(stream);
                 server.run();
-//                let mut write_stream = match stream.try_clone() {
-//                    Ok(s) => s,
-//                    Err(_) => panic!("Failed to clone stream"),
-//                };
-//                let request = handle_client(stream);
-
-//                match request.command {
-//                    Command::Put => {
-//                        server.put(1, 1, 1, request.data.unwrap());
-//                    },
-//                    Command::Reserve => {
-//                        let job = server.reserve();
-//                        println!("reserved job {}", job.data);
-//                        write_stream.write(job.data.as_bytes());
-//                    },
-//                };
             },
         };
     }
