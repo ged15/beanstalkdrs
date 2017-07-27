@@ -3,59 +3,10 @@ extern crate nom;
 
 use std::iter;
 use std::io::Read;
-use std::io::Write;
 use std::net::{TcpListener, TcpStream};
 use std::str;
-use nom::{IResult, space, alphanumeric, multispace};
+use nom::{IResult, space, alphanumeric};
 
-/// A command argument
-#[derive(Debug, Clone)]
-pub struct Argument {
-    /// The position in the array
-    pub pos: usize,
-    /// The length in the array
-    pub len: usize,
-}
-
-/// A protocol parser
-#[derive(Debug)]
-pub struct ParsedCommand<'a> {
-    /// The data itself
-    data: &'a [u8],
-    /// The arguments location and length
-    pub argv: Vec<Argument>,
-}
-
-impl<'a> ParsedCommand<'a> {
-    /// Creates a new parser with the data and arguments provided
-    pub fn new(data: &[u8], argv: Vec<Argument>) -> ParsedCommand {
-        return ParsedCommand {
-            data: data,
-            argv: argv,
-        };
-    }
-}
-
-impl OwnedParsedCommand {
-    pub fn new(data: Vec<u8>, argv: Vec<Argument>) -> Self {
-        OwnedParsedCommand {
-            data: data,
-            argv: argv,
-        }
-    }
-
-    pub fn get_command(&self) -> ParsedCommand {
-        ParsedCommand::new(&*self.data, self.argv.clone())
-    }
-}
-
-#[derive(Debug)]
-pub struct OwnedParsedCommand {
-    data: Vec<u8>,
-    pub argv: Vec<Argument>,
-}
-
-/// Error parsing
 #[derive(Debug, PartialEq)]
 pub enum ParseError {
     /// The received buffer is valid but needs more data
@@ -197,7 +148,7 @@ impl Server {
             data: data.clone(),
         });
 
-        println!("new job with data {}", data);
+//        println!("new job with data {:?}", data);
     }
 
     fn reserve(self: &mut Self) -> Job {
@@ -244,8 +195,7 @@ impl Server {
                         },
                         Command::Reserve => {
                             let job = self.reserve();
-                            println!("reserved job {}", job.data);
-//                            write_stream.write(job.data.as_bytes());
+//                            println!("reserved job {}", job.data);
                         },
                     };
                 },
@@ -267,8 +217,6 @@ impl Server {
                     }
                 }
             };
-
-//            println!("{:?}", request);
         }
     }
 }
