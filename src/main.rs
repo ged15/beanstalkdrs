@@ -31,6 +31,7 @@ named!(beanstalk_request <&[u8], (&[u8], Option<&[u8]>)>,
         command: alt!(tag!("put") | tag!("reserve")) >>
         opt!(space) >>
         data: opt!(alphanumeric) >>
+        tag!("\r\n") >>
         (command, data)
     )
 );
@@ -130,6 +131,7 @@ struct Job {
 
 struct Server {
     pub queue: Vec<Job>,
+    pub reserved_jobs: Vec<Job>,
     pub stream: TcpStream,
     pub auto_increment_index: u8,
 }
@@ -138,13 +140,14 @@ impl Server {
     fn new(stream: TcpStream) -> Server {
         Server {
             queue: Vec::new(),
+            reserved_jobs: Vec::new(),
             stream: stream,
             auto_increment_index: 0,
         }
     }
 
     fn put(&mut self, pri: u8, delay: u8, ttr: u8, data: Vec<u8>) -> u8 {
-        self.auto_increment_index = self.auto_increment_index + 1;
+        self.auto_increment_index += 1;
         self.queue.push(Job {
             id: self.auto_increment_index,
             priority: pri,
@@ -156,11 +159,17 @@ impl Server {
         self.auto_increment_index
     }
 
-    fn reserve(self: &mut Self) -> Job {
-        match self.queue.pop() {
+    fn reserve(&mut self) -> (u8, Vec<u8>) {
+        let job = match self.queue.pop() {
             Some(j) => j,
             None => panic!("No more jobs!"),
-        }
+        };
+
+        let ret = (job.id, job.data.clone());
+
+        self.reserved_jobs.push(job);
+
+        ret
     }
 
     fn run(&mut self) {
@@ -205,12 +214,12 @@ impl Server {
                             self.stream.write(response.as_bytes());
                         },
                         Command::Reserve => {
-                            let job = self.reserve();
+                            let (job_id, job_data) = self.reserve();
 
-                            let header = format!("RESERVED {} {}\r\n", job.id, job.data.len());
+                            let header = format!("RESERVED {} {}\r\n", job_id, job_data.len());
 
                             self.stream.write(header.as_bytes());
-                            self.stream.write(job.data.as_slice());
+                            self.stream.write(job_data.as_slice());
                             self.stream.write(b"\r\n");
                         },
                     };
