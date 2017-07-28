@@ -1,6 +1,7 @@
 #[macro_use]
 extern crate nom;
 
+use std::collections::HashMap;
 use std::iter;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -28,7 +29,7 @@ impl ParseError {
 
 named!(beanstalk_request <&[u8], (&[u8], Option<&[u8]>)>,
     do_parse!(
-        command: alt!(tag!("put") | tag!("reserve")) >>
+        command: alt!(tag!("put") | tag!("reserve") | tag!("delete")) >>
         opt!(space) >>
         data: opt!(alphanumeric) >>
         tag!("\r\n") >>
@@ -42,6 +43,7 @@ fn parse_nom(input: &[u8]) -> Result<(Request, usize), ParseError> {
             let command = match o.0 {
                 b"put" => Command::Put,
                 b"reserve" => Command::Reserve,
+                b"delete" => Command::Delete,
                 _ => panic!("unknown command")
             };
             Ok((
@@ -113,6 +115,7 @@ impl Parser {
 enum Command {
     Put,
     Reserve,
+    Delete,
 }
 
 #[derive(Debug)]
@@ -127,11 +130,13 @@ struct Job {
     delay: u8,
     ttr: u8,
     data: Vec<u8>,
+    deleted: bool,
+    reserved: bool,
 }
 
 struct Server {
-    pub queue: Vec<Job>,
-    pub reserved_jobs: Vec<Job>,
+    pub queue: HashMap<u8, Job>,
+    pub reserved_jobs: HashMap<u8, Job>,
     pub stream: TcpStream,
     pub auto_increment_index: u8,
 }
@@ -139,8 +144,8 @@ struct Server {
 impl Server {
     fn new(stream: TcpStream) -> Server {
         Server {
-            queue: Vec::new(),
-            reserved_jobs: Vec::new(),
+            queue: HashMap::new(),
+            reserved_jobs: HashMap::new(),
             stream: stream,
             auto_increment_index: 0,
         }
@@ -148,28 +153,50 @@ impl Server {
 
     fn put(&mut self, pri: u8, delay: u8, ttr: u8, data: Vec<u8>) -> u8 {
         self.auto_increment_index += 1;
-        self.queue.push(Job {
+        self.queue.insert(self.auto_increment_index, Job {
             id: self.auto_increment_index,
             priority: pri,
             delay: delay,
             ttr: ttr,
             data: data,
+            deleted: false,
+            reserved: false,
         });
 
         self.auto_increment_index
     }
 
     fn reserve(&mut self) -> (u8, Vec<u8>) {
-        let job = match self.queue.pop() {
-            Some(j) => j,
+        let mut items: Vec<(&u8, &mut Job)> = self.queue.iter_mut()
+            .filter(|item| !item.1.reserved)
+            .take(1)
+            .collect();
+
+        match items.pop() {
+            Some((id, job)) => {
+                job.reserved = true;
+
+                let ret = (*id, job.data.clone());
+
+                self.reserved_jobs.insert(*id, Job {
+                    id: job.id,
+                    priority: job.priority,
+                    delay: job.delay,
+                    ttr: job.ttr,
+                    data: job.data.clone(),
+                    deleted: false,
+                    reserved: false,
+                });
+
+                ret
+            },
             None => panic!("No more jobs!"),
-        };
+        }
+    }
 
-        let ret = (job.id, job.data.clone());
-
-        self.reserved_jobs.push(job);
-
-        ret
+    fn delete(&mut self, id: &u8) -> Option<Job> {
+        println!("Deleting job {}", id);
+        self.queue.remove(id)
     }
 
     fn run(&mut self) {
@@ -202,6 +229,8 @@ impl Server {
 
             match parser.next() {
                 Ok(request) => {
+                    println!("Received request {:?}", request);
+
                     match request.command {
                         Command::Put => {
                             let mut data = Vec::new();
@@ -221,6 +250,17 @@ impl Server {
                             self.stream.write(header.as_bytes());
                             self.stream.write(job_data.as_slice());
                             self.stream.write(b"\r\n");
+                        },
+                        Command::Delete => {
+                            let id = str::from_utf8(request.data.unwrap())
+                                .unwrap()
+                                .parse::<u8>()
+                                .unwrap();
+
+                            match self.delete(&id) {
+                                Some(_) => self.stream.write(b"DELETED\r\n"),
+                                None => self.stream.write(b"NOT FOUND\r\n"),
+                            };
                         },
                     };
                 },
