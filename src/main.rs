@@ -156,10 +156,6 @@ impl Server {
                             println!("Incomplete");
                             continue;
                         }
-                        ParseError::BadProtocol(s) => {
-                            println!("Bad protocol {:?}", s);
-                            break;
-                        }
                         _ => {
                             println!("Protocol error from client: {:?}", err);
                             break;
