@@ -121,6 +121,7 @@ pub struct Request<'a> {
 }
 
 struct Job {
+    id: u8,
     priority: u8,
     delay: u8,
     ttr: u8,
@@ -130,6 +131,7 @@ struct Job {
 struct Server {
     pub queue: Vec<Job>,
     pub stream: TcpStream,
+    pub auto_increment_index: u8,
 }
 
 impl Server {
@@ -137,16 +139,21 @@ impl Server {
         Server {
             queue: Vec::new(),
             stream: stream,
+            auto_increment_index: 0,
         }
     }
 
-    fn put(self: &mut Self, pri: u8, delay: u8, ttr: u8, data: Vec<u8>) {
+    fn put(&mut self, pri: u8, delay: u8, ttr: u8, data: Vec<u8>) -> u8 {
+        self.auto_increment_index = self.auto_increment_index + 1;
         self.queue.push(Job {
+            id: self.auto_increment_index,
             priority: pri,
             delay: delay,
             ttr: ttr,
             data: data,
         });
+
+        self.auto_increment_index
     }
 
     fn reserve(self: &mut Self) -> Job {
@@ -190,13 +197,17 @@ impl Server {
                         Command::Put => {
                             let mut data = Vec::new();
                             data.extend_from_slice(request.data.unwrap());
-                            self.put(1, 1, 1, data);
-                            self.stream.write(b"INSERTED\r\n");
+
+                            let id = self.put(1, 1, 1, data);
+
+                            let response = format!("INSERTED {}\r\n", id);
+
+                            self.stream.write(response.as_bytes());
                         },
                         Command::Reserve => {
                             let job = self.reserve();
 
-                            let header = format!("RESERVED {}\r\n", job.data.len());
+                            let header = format!("RESERVED {} {}\r\n", job.id, job.data.len());
 
                             self.stream.write(header.as_bytes());
                             self.stream.write(job.data.as_slice());
