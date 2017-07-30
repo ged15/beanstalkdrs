@@ -30,7 +30,7 @@ impl Job {
 }
 
 struct Server {
-    queue: HashMap<u8, Job>,
+    ready_jobs: HashMap<u8, Job>,
     reserved_jobs: HashMap<u8, Job>,
     stream: TcpStream,
     auto_increment_index: u8,
@@ -39,7 +39,7 @@ struct Server {
 impl Server {
     fn new(stream: TcpStream) -> Server {
         Server {
-            queue: HashMap::new(),
+            ready_jobs: HashMap::new(),
             reserved_jobs: HashMap::new(),
             stream: stream,
             auto_increment_index: 0,
@@ -48,19 +48,19 @@ impl Server {
 
     fn put(&mut self, pri: u8, delay: u8, ttr: u8, data: Vec<u8>) -> u8 {
         self.auto_increment_index += 1;
-        self.queue.insert(self.auto_increment_index, Job::new(self.auto_increment_index, data));
+        self.ready_jobs.insert(self.auto_increment_index, Job::new(self.auto_increment_index, data));
 
         self.auto_increment_index
     }
 
     fn reserve(&mut self) -> (u8, Vec<u8>) {
-        let key = self.queue.iter()
+        let key = self.ready_jobs.iter()
             .find(|&(_, &_)| true)
             .map(|(key, _)| key.clone());
 
         match key {
             Some(id) => {
-                let job = self.queue.remove(&id).unwrap();
+                let job = self.ready_jobs.remove(&id).unwrap();
 
                 let ret = (id, job.data.clone());
 
@@ -74,7 +74,7 @@ impl Server {
 
     fn delete(&mut self, id: &u8) -> Option<Job> {
         println!("Deleting job {}", id);
-        self.queue.remove(id)
+        self.ready_jobs.remove(id)
     }
 
     fn run(&mut self) {
