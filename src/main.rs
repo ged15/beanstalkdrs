@@ -15,8 +15,6 @@ struct Job {
     delay: u8,
     ttr: u8,
     data: Vec<u8>,
-    deleted: bool,
-    reserved: bool,
 }
 
 impl Job {
@@ -25,19 +23,17 @@ impl Job {
             id: id,
             priority: 0,
             delay: 0,
-            ttr: 0,
+            ttr: 1,
             data: data,
-            deleted: false,
-            reserved: false,
         }
     }
 }
 
 struct Server {
-    pub queue: HashMap<u8, Job>,
-    pub reserved_jobs: HashMap<u8, Job>,
-    pub stream: TcpStream,
-    pub auto_increment_index: u8,
+    queue: HashMap<u8, Job>,
+    reserved_jobs: HashMap<u8, Job>,
+    stream: TcpStream,
+    auto_increment_index: u8,
 }
 
 impl Server {
@@ -58,18 +54,17 @@ impl Server {
     }
 
     fn reserve(&mut self) -> (u8, Vec<u8>) {
-        let mut items: Vec<(&u8, &mut Job)> = self.queue.iter_mut()
-            .filter(|item| !item.1.reserved)
-            .take(1)
-            .collect();
+        let key = self.queue.iter()
+            .find(|&(_, &_)| true)
+            .map(|(key, _)| key.clone());
 
-        match items.pop() {
-            Some((id, job)) => {
-                job.reserved = true;
+        match key {
+            Some(id) => {
+                let job = self.queue.remove(&id).unwrap();
 
-                let ret = (*id, job.data.clone());
+                let ret = (id, job.data.clone());
 
-                self.reserved_jobs.insert(*id, Job::new(job.id, job.data.clone()));
+                self.reserved_jobs.insert(id, Job::new(job.id, job.data.clone()));
 
                 ret
             },
