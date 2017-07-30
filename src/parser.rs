@@ -9,26 +9,26 @@ pub enum ParseError {
     InvalidArgument,
 }
 
-named!(beanstalk_request <&[u8], Request>, alt!(
+named!(beanstalk_command <&[u8], Command>, alt!(
     put_command | reserve_command | delete_command
 ));
 
-named!(put_command <Request>, do_parse!(
+named!(put_command <Command>, do_parse!(
     tag!("put ") >>
     data: alphanumeric >>
     tag!("\r\n") >>
-    (Request {command: Command::Put, data: Some(data)})
+    (Command::Put {data: data})
 ));
 
-named!(reserve_command <Request>, do_parse!(
+named!(reserve_command <Command>, do_parse!(
     tag!("reserve") >>
-    (Request {command: Command::Reserve, data: None})
+    (Command::Reserve {})
 ));
 
-named!(delete_command <Request>, do_parse!(
+named!(delete_command <Command>, do_parse!(
     tag!("delete ") >>
     id: digit >>
-    (Request {command: Command::Delete, data: Some(id)})
+    (Command::Delete {id: id})
 ));
 
 pub struct Parser {
@@ -72,17 +72,17 @@ impl Parser {
 
     pub fn is_incomplete(&self) -> bool {
         let data = &(&*self.data)[self.position..self.written];
-        match beanstalk_request(data) {
+        match beanstalk_command(data) {
             IResult::Incomplete(_) => true,
             _ => false,
         }
     }
 
-    pub fn next(&mut self) -> Result<Request, ParseError> {
+    pub fn next(&mut self) -> Result<Command, ParseError> {
         let data = &(&*self.data)[self.position..self.written];
         self.position += data.len();
 
-        match beanstalk_request(data) {
+        match beanstalk_command(data) {
             IResult::Done(i, o) => Ok(o),
             IResult::Incomplete(_) => Err(ParseError::Incomplete),
             IResult::Error(_) => Err(ParseError::InvalidArgument),
@@ -91,14 +91,8 @@ impl Parser {
 }
 
 #[derive(Debug)]
-pub enum Command {
-    Put,
+pub enum Command<'a> {
+    Put {data: &'a [u8]},
     Reserve,
-    Delete,
-}
-
-#[derive(Debug)]
-pub struct Request<'a> {
-    pub command: Command,
-    pub data: Option<&'a [u8]>,
+    Delete {id: &'a [u8]},
 }

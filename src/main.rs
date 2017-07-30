@@ -111,15 +111,15 @@ impl Server {
             }
 
             match parser.next() {
-                Ok(request) => {
-                    println!("Received request {:?}", request);
+                Ok(command) => {
+                    println!("Received command {:?}", command);
 
-                    match request.command {
-                        Command::Put => {
-                            let mut data = Vec::new();
-                            data.extend_from_slice(request.data.unwrap());
+                    match command {
+                        Command::Put {data} => {
+                            let mut alloc_data = Vec::new();
+                            alloc_data.extend_from_slice(data);
 
-                            let id = self.put(1, 1, 1, data);
+                            let id = self.put(1, 1, 1, alloc_data);
 
                             let response = format!("INSERTED {}\r\n", id);
 
@@ -134,8 +134,8 @@ impl Server {
                             self.stream.write(job_data.as_slice());
                             self.stream.write(b"\r\n");
                         },
-                        Command::Delete => {
-                            let id = str::from_utf8(request.data.unwrap())
+                        Command::Delete {id} => {
+                            let id = str::from_utf8(id)
                                 .unwrap()
                                 .parse::<u8>()
                                 .unwrap();
