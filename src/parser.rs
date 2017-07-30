@@ -21,13 +21,14 @@ named!(put_command <Command>, do_parse!(
 ));
 
 named!(reserve_command <Command>, do_parse!(
-    tag!("reserve") >>
+    tag!("reserve\r\n") >>
     (Command::Reserve {})
 ));
 
 named!(delete_command <Command>, do_parse!(
     tag!("delete ") >>
     id: digit >>
+    tag!("\r\n") >>
     (Command::Delete {id: id})
 ));
 
@@ -90,9 +91,54 @@ impl Parser {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Command<'a> {
     Put {data: &'a [u8]},
     Reserve,
     Delete {id: &'a [u8]},
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nom::{IResult, ErrorKind};
+
+    #[test]
+    fn parsing_put_command() {
+        assert_eq!(
+            beanstalk_command(b"put abc\r\n"),
+            IResult::Done(&b""[..], Command::Put {data: &b"abc"[..]})
+        );
+    }
+
+    #[test]
+    fn parsing_reserve_command() {
+        assert_eq!(
+            beanstalk_command(b"reserve\r\n"),
+            IResult::Done(&b""[..], Command::Reserve)
+        );
+        assert_eq!(
+            beanstalk_command(b"reserve a\r\n"),
+            IResult::Error(ErrorKind::Alt)
+        );
+    }
+
+    #[test]
+    fn parsing_delete_command_with_numeric_id() {
+        assert_eq!(
+            beanstalk_command(b"delete 1\r\n"),
+            IResult::Done(&b""[..], Command::Delete {id: &b"1"[..]})
+        );
+        assert_eq!(
+            beanstalk_command(b"delete 102\r\n"),
+            IResult::Done(&b""[..], Command::Delete {id: &b"102"[..]})
+        );
+    }
+
+    #[test]
+    fn parsing_delete_command_with_non_numeric_id() {
+        assert_eq!(beanstalk_command(b"delete aaa\r\n"), IResult::Error(ErrorKind::Alt));
+        assert_eq!(beanstalk_command(b"delete 1100 aaa\r\n"), IResult::Error(ErrorKind::Alt));
+        assert_eq!(beanstalk_command(b"delete aaa 12\r\n"), IResult::Error(ErrorKind::Alt));
+    }
 }
