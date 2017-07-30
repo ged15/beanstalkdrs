@@ -19,6 +19,20 @@ struct Job {
     reserved: bool,
 }
 
+impl Job {
+    fn new(id: u8, data: Vec<u8>) -> Job {
+        Job {
+            id: id,
+            priority: 0,
+            delay: 0,
+            ttr: 0,
+            data: data,
+            deleted: false,
+            reserved: false,
+        }
+    }
+}
+
 struct Server {
     pub queue: HashMap<u8, Job>,
     pub reserved_jobs: HashMap<u8, Job>,
@@ -38,15 +52,7 @@ impl Server {
 
     fn put(&mut self, pri: u8, delay: u8, ttr: u8, data: Vec<u8>) -> u8 {
         self.auto_increment_index += 1;
-        self.queue.insert(self.auto_increment_index, Job {
-            id: self.auto_increment_index,
-            priority: pri,
-            delay: delay,
-            ttr: ttr,
-            data: data,
-            deleted: false,
-            reserved: false,
-        });
+        self.queue.insert(self.auto_increment_index, Job::new(self.auto_increment_index, data));
 
         self.auto_increment_index
     }
@@ -63,15 +69,7 @@ impl Server {
 
                 let ret = (*id, job.data.clone());
 
-                self.reserved_jobs.insert(*id, Job {
-                    id: job.id,
-                    priority: job.priority,
-                    delay: job.delay,
-                    ttr: job.ttr,
-                    data: job.data.clone(),
-                    deleted: false,
-                    reserved: false,
-                });
+                self.reserved_jobs.insert(*id, Job::new(job.id, job.data.clone()));
 
                 ret
             },
