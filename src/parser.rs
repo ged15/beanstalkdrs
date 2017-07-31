@@ -10,6 +10,10 @@ pub enum ParseError {
     InvalidArgument,
 }
 
+// todo: parser for tube name (max 200 chars)
+// todo: parser for data
+
+// todo: make errors propagate from parsers
 named!(beanstalk_command <&[u8], Command>, alt!(
     put_command |
     reserve_command |
