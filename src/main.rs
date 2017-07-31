@@ -1,6 +1,9 @@
 #[macro_use]
 extern crate nom;
 
+#[macro_use]
+extern crate log;
+
 mod parser;
 
 use parser::*;
@@ -8,6 +11,8 @@ use parser::*;
 mod jobqueue;
 
 use jobqueue::*;
+
+mod pretty_env_logger;
 
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -235,6 +240,8 @@ kicks: {}\n",
 }
 
 fn main() {
+    pretty_env_logger::init().unwrap();
+
     let listener = TcpListener::bind("127.0.0.1:11300").unwrap();
 
     let job_queue = Arc::new(Mutex::new(JobQueue::new()));
@@ -245,7 +252,7 @@ fn main() {
             Ok(stream) => {
                 let job_queue = job_queue.clone();
                 thread::spawn(move || {
-                    println!("client connected");
+                    debug!("Client connected");
 
                     let mut server = Server::new(stream, job_queue);
                     server.run();

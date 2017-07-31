@@ -37,6 +37,9 @@ impl JobQueue {
 
     pub fn put(&mut self, pri: u8, delay: u8, ttr: u8, data: Vec<u8>) -> u8 {
         self.auto_increment_index += 1;
+
+        debug!("Putting job ID {} with data {:?}", self.auto_increment_index, data);
+
         self.ready_jobs.insert(self.auto_increment_index, Job::new(self.auto_increment_index, data));
 
         self.auto_increment_index
@@ -63,7 +66,8 @@ impl JobQueue {
     }
 
     pub fn delete(&mut self, id: &u8) -> Option<Job> {
-        println!("Deleting job {}", id);
+        debug!("Deleting job {}", id);
+
         match self.ready_jobs.remove(id) {
             Some(job) => Some(job),
             None => self.reserved_jobs.remove(id),
@@ -71,7 +75,7 @@ impl JobQueue {
     }
 
     pub fn release(&mut self, id: &u8) -> Option<Job> {
-        println!("Releasing job {}", id);
+        debug!("Releasing job {}", id);
 
         let key = self.reserved_jobs.iter()
             .find(|&(job_id, &_)| job_id == id)
