@@ -12,6 +12,8 @@ pub enum ParseError {
 
 // todo: parser for tube name (max 200 chars)
 // todo: parser for data
+// todo: parser for ID
+// todo: return ID as u8
 
 // todo: make errors propagate from parsers
 named!(beanstalk_command <&[u8], Command>, alt!(
@@ -25,9 +27,11 @@ named!(beanstalk_command <&[u8], Command>, alt!(
     use_command |
     peek_ready_command |
     peek_delayed_command |
-    peek_buried_command
+    peek_buried_command |
+    stats_job_command
 ));
 
+// @todo messes up when command data contains \r\n
 named!(put_command <Command>, do_parse!(
     tag!("put ") >>
     digit >>
@@ -117,6 +121,13 @@ named!(peek_buried_command <Command>, do_parse!(
     (Command::PeekBuried {})
 ));
 
+named!(stats_job_command <Command>, do_parse!(
+    tag!("stats-job ") >>
+    id: digit >>
+    tag!("\r\n") >>
+    (Command::StatsJob {id: id})
+));
+
 pub struct Parser {
     data: Vec<u8>,
     position: usize,
@@ -192,6 +203,7 @@ pub enum Command<'a> {
     PeekReady {},
     PeekDelayed {},
     PeekBuried {},
+    StatsJob {id: &'a [u8]},
 }
 
 #[cfg(test)]

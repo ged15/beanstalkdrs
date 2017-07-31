@@ -141,13 +141,78 @@ pause-time-left: 0
                             self.stream.write(format!("USING {:?}\r\n", tube).as_bytes());
                         },
                         Command::PeekReady {} => {
-                            self.stream.write(b"NOT_FOUND\r\n");
+                            match job_queue.peek_ready() {
+                                Some((id, data)) => {
+                                    self.stream.write(format!(
+                                        "FOUND {} {}\r\n",
+                                        id,
+                                        data.len()
+                                    ).as_bytes());
+                                    self.stream.write(data.as_slice());
+                                    self.stream.write(b"\r\n");
+                                },
+                                None => {
+                                    self.stream.write(b"NOT_FOUND\r\n");
+                                },
+                            };
                         },
                         Command::PeekDelayed {} => {
                             self.stream.write(b"NOT_FOUND\r\n");
                         },
                         Command::PeekBuried {} => {
                             self.stream.write(b"NOT_FOUND\r\n");
+                        },
+                        Command::StatsJob {id} => {
+                            let id = str::from_utf8(id)
+                                .unwrap()
+                                .parse::<u8>()
+                                .unwrap();
+
+                            match job_queue.stats_job(&id) {
+                                Some(response) => {
+                                    let yaml = format!(
+                                        "---\n\
+id: {}\n\
+tube: {}\n\
+state: {}\n\
+pri: {}\n\
+age: {}\n\
+delay: {}\n\
+ttr: {}\n\
+time: {}\n\
+file: {}\n\
+reserves: {}\n\
+timeouts: {}\n\
+releases: {}\n\
+buries: {}\n\
+kicks: {}\n",
+                                        response.id,
+                                        response.tube,
+                                        response.state,
+                                        response.pri,
+                                        response.age,
+                                        response.delay,
+                                        response.ttr,
+                                        response.time,
+                                        response.file,
+                                        response.reserves,
+                                        response.timeouts,
+                                        response.releases,
+                                        response.buries,
+                                        response.kicks,
+                                    );
+
+                                    self.stream.write(
+                                        format!("OK {}\r\n", yaml.len()).as_bytes()
+                                    );
+                                    self.stream.write(yaml.as_bytes());
+                                    self.stream.write(b"\r\n");
+                                },
+                                None => {
+                                    self.stream.write(b"NOT_FOUND\r\n");
+                                },
+                            };
+
                         },
                     };
                 },

@@ -43,6 +43,7 @@ impl JobQueue {
     }
 
     pub fn reserve(&mut self) -> (u8, Vec<u8>) {
+        // todo: can we use take(1) here?
         let key = self.ready_jobs.iter()
             .find(|&(_, &_)| true)
             .map(|(key, _)| key.clone());
@@ -85,4 +86,59 @@ impl JobQueue {
             None => None,
         }
     }
+
+    pub fn peek_ready(&self) -> Option<(u8, Vec<u8>)> {
+        match self.ready_jobs.iter().next() {
+            Some((id, job)) => Some((id.clone(), job.data.clone())),
+            None => None,
+        }
+    }
+
+    pub fn stats_job(&self, id: &u8) -> Option<StatsJobResponse> {
+        match self.ready_jobs.get(id) {
+            Some(job) => {
+                Some(StatsJobResponse {
+                    id: *id,
+                    tube: "default".to_string(),
+                    state: "ready".to_string(),
+                    pri: 0,
+                    age: 0,
+                    delay: 0,
+                    ttr: 0,
+                    time: 0,
+                    file: 0,
+                    reserves: 0,
+                    timeouts: 0,
+                    releases: 0,
+                    buries: 0,
+                    kicks: 0,
+                })
+            },
+            None => None,
+        }
+    }
+}
+
+pub struct StatsJobResponse {
+    pub id: u8,
+    pub tube: String,
+    pub state: String,
+    pub pri: u8,
+    pub age: u8,
+    pub delay: u8,
+    pub ttr: u8,
+    pub time: u8,
+    pub file: u8,
+    pub reserves: u8,
+    pub timeouts: u8,
+    pub releases: u8,
+    pub buries: u8,
+    pub kicks: u8,
+}
+
+enum JobState {
+    Ready,
+    Delayed,
+    Reserved,
+    Burried
 }
