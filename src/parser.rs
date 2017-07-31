@@ -87,7 +87,7 @@ named!(use_command <Command>, do_parse!(
             (tube)
         )
     ) >>
-    (Command::UseTube {tube: tube})
+    (Command::Use {tube: tube})
 ));
 
 named!(peek_ready_command <Command>, do_parse!(
@@ -176,7 +176,7 @@ pub enum Command<'a> {
     Watch {tube: &'a [u8]},
     ListTubes {},
     StatsTube {tube: &'a [u8]},
-    UseTube {tube: &'a [u8]},
+    Use {tube: &'a [u8]},
     PeekReady {},
     PeekDelayed {},
     PeekBuried {},
@@ -230,15 +230,15 @@ mod tests {
     fn parsing_use_command() {
         assert_eq!(
             beanstalk_command(b"use\r\n"),
-            IResult::Done(&b""[..], Command::UseTube {tube: &b"default"[..]})
+            IResult::Done(&b""[..], Command::Use {tube: &b"default"[..]})
         );
         assert_eq!(
             use_command(b"use \r\n"),
-            IResult::Done(&b""[..], Command::UseTube {tube: &b"default"[..]})
+            IResult::Done(&b""[..], Command::Use {tube: &b"default"[..]})
         );
         assert_eq!(
             use_command(b"use tubename\r\n"),
-            IResult::Done(&b""[..], Command::UseTube {tube: &b"tubename"[..]})
+            IResult::Done(&b""[..], Command::Use {tube: &b"tubename"[..]})
         );
     }
 }

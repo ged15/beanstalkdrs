@@ -137,7 +137,7 @@ pause-time-left: 0
                                 stats
                             ).as_bytes());
                         },
-                        Command::UseTube {tube} => {
+                        Command::Use {tube} => {
                             self.stream.write(format!("USING {:?}\r\n", tube).as_bytes());
                         },
                         Command::PeekReady {} => {
