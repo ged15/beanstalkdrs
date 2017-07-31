@@ -80,6 +80,23 @@ impl Server {
         }
     }
 
+    fn release(&mut self, id: &u8) -> Option<Job> {
+        println!("Releasing job {}", id);
+
+        let key = self.reserved_jobs.iter()
+            .find(|&(job_id, &_)| job_id == id)
+            .map(|(key, _)| key.clone());
+
+        match key {
+            Some(id) => {
+                let job = self.reserved_jobs.remove(&id).unwrap();
+                self.ready_jobs.insert(id, Job::new(job.id, job.data.clone()));
+                Some(job)
+            },
+            None => None,
+        }
+    }
+
     fn run(&mut self) {
         let mut parser = Parser::new();
 
@@ -140,6 +157,17 @@ impl Server {
 
                             match self.delete(&id) {
                                 Some(_) => self.stream.write(b"DELETED\r\n"),
+                                None => self.stream.write(b"NOT FOUND\r\n"),
+                            };
+                        },
+                        Command::Release {id, pri, delay} => {
+                            let id = str::from_utf8(id)
+                                .unwrap()
+                                .parse::<u8>()
+                                .unwrap();
+
+                            match self.release(&id) {
+                                Some(_) => self.stream.write(b"RELEASED\r\n"),
                                 None => self.stream.write(b"NOT FOUND\r\n"),
                             };
                         },

@@ -10,7 +10,7 @@ pub enum ParseError {
 }
 
 named!(beanstalk_command <&[u8], Command>, alt!(
-    put_command | reserve_command | delete_command
+    put_command | reserve_command | delete_command | release_command
 ));
 
 named!(put_command <Command>, do_parse!(
@@ -30,6 +30,17 @@ named!(delete_command <Command>, do_parse!(
     id: digit >>
     tag!("\r\n") >>
     (Command::Delete {id: id})
+));
+
+named!(release_command <Command>, do_parse!(
+    tag!("release ") >>
+    id: digit >>
+    tag!(" ") >>
+    pri: digit >>
+    tag!(" ") >>
+    delay: digit >>
+    tag!("\r\n") >>
+    (Command::Release {id: id, pri: pri, delay: delay})
 ));
 
 pub struct Parser {
@@ -96,6 +107,7 @@ pub enum Command<'a> {
     Put {data: &'a [u8]},
     Reserve,
     Delete {id: &'a [u8]},
+    Release {id: &'a [u8], pri: &'a [u8], delay: &'a [u8]},
 }
 
 #[cfg(test)]
