@@ -26,6 +26,14 @@ named!(beanstalk_command <&[u8], Command>, alt!(
 
 named!(put_command <Command>, do_parse!(
     tag!("put ") >>
+    digit >>
+    tag!(" ") >>
+    digit >>
+    tag!(" ") >>
+    digit >>
+    tag!(" ") >>
+    digit >>
+    tag!("\r\n") >>
     data: alphanumeric >>
     tag!("\r\n") >>
     (Command::Put {data: data})
@@ -155,7 +163,7 @@ impl Parser {
     pub fn next(&mut self) -> Result<Command, ParseError> {
         let data = &(&*self.data)[self.position..self.written];
 
-        println!("Trying to parse data '{}'", str::from_utf8(data).unwrap());
+        println!("Trying to parse data '{}'", str::from_utf8(data).unwrap().trim_right());
 
         self.position += data.len();
 
@@ -190,8 +198,8 @@ mod tests {
     #[test]
     fn parsing_put_command() {
         assert_eq!(
-            beanstalk_command(b"put abc\r\n"),
-            IResult::Done(&b""[..], Command::Put {data: &b"abc"[..]})
+            beanstalk_command(b"put 1 10 60 5\r\nlabas\r\n"),
+            IResult::Done(&b""[..], Command::Put {data: &b"labas"[..]})
         );
     }
 
@@ -233,11 +241,11 @@ mod tests {
             IResult::Done(&b""[..], Command::Use {tube: &b"default"[..]})
         );
         assert_eq!(
-            use_command(b"use \r\n"),
+            beanstalk_command(b"use \r\n"),
             IResult::Done(&b""[..], Command::Use {tube: &b"default"[..]})
         );
         assert_eq!(
-            use_command(b"use tubename\r\n"),
+            beanstalk_command(b"use tubename\r\n"),
             IResult::Done(&b""[..], Command::Use {tube: &b"tubename"[..]})
         );
     }
