@@ -74,16 +74,20 @@ named!(stats_tube_command <Command>, do_parse!(
 ));
 
 named!(use_command <Command>, do_parse!(
-    tag!("use ") >>
-//    opt!(tag!(" ")) >>
-//    tube: opt!(do_parse!(
-//        tag!(" ") >>
-//        tube: alphanumeric >>
-//        (tube)
-//    )) >>
-    tag!("\r\n") >>
-//    (Command::UseTube {tube: tube.unwrap_or("default".as_bytes())})
-    (Command::UseTube {tube: "default".as_bytes()})
+    tag!("use") >>
+    tube: alt!(
+        map!(
+            do_parse!(opt!(tag!(" ")) >> tag!("\r\n") >> ()),
+            |_| "default".as_bytes()
+        ) |
+        do_parse!(
+            tag!(" ") >>
+            tube: alphanumeric >>
+            tag!("\r\n") >>
+            (tube)
+        )
+    ) >>
+    (Command::UseTube {tube: tube})
 ));
 
 named!(peek_ready_command <Command>, do_parse!(
@@ -224,17 +228,17 @@ mod tests {
 
     #[test]
     fn parsing_use_command() {
-//        assert_eq!(
-//            beanstalk_command(b"use\r\n"),
-//            IResult::Done(&b""[..], Command::UseTube {tube: &b"default"[..]})
-//        );
         assert_eq!(
-            beanstalk_command(b"use \r\n"),
+            beanstalk_command(b"use\r\n"),
             IResult::Done(&b""[..], Command::UseTube {tube: &b"default"[..]})
         );
-//        assert_eq!(
-//            beanstalk_command(b"use tubename\r\n"),
-//            IResult::Done(&b""[..], Command::UseTube {tube: &b"tubename"[..]})
-//        );
+        assert_eq!(
+            use_command(b"use \r\n"),
+            IResult::Done(&b""[..], Command::UseTube {tube: &b"default"[..]})
+        );
+        assert_eq!(
+            use_command(b"use tubename\r\n"),
+            IResult::Done(&b""[..], Command::UseTube {tube: &b"tubename"[..]})
+        );
     }
 }
