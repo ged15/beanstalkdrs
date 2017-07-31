@@ -1,5 +1,6 @@
 use nom::{IResult, alphanumeric, digit};
 use std::iter;
+use std::str;
 
 #[derive(Debug, PartialEq)]
 pub enum ParseError {
@@ -10,7 +11,17 @@ pub enum ParseError {
 }
 
 named!(beanstalk_command <&[u8], Command>, alt!(
-    put_command | reserve_command | delete_command | release_command
+    put_command |
+    reserve_command |
+    delete_command |
+    release_command |
+    watch_command |
+    list_tubes_command |
+    stats_tube_command |
+    use_command |
+    peek_ready_command |
+    peek_delayed_command |
+    peek_buried_command
 ));
 
 named!(put_command <Command>, do_parse!(
@@ -43,6 +54,53 @@ named!(release_command <Command>, do_parse!(
     (Command::Release {id: id, pri: pri, delay: delay})
 ));
 
+named!(watch_command <Command>, do_parse!(
+    tag!("watch ") >>
+    tube: alphanumeric >>
+    tag!("\r\n") >>
+    (Command::Watch {tube: tube})
+));
+
+named!(list_tubes_command <Command>, do_parse!(
+    tag!("list-tubes\r\n") >>
+    (Command::ListTubes {})
+));
+
+named!(stats_tube_command <Command>, do_parse!(
+    tag!("stats-tube ") >>
+    tube: alphanumeric >>
+    tag!("\r\n") >>
+    (Command::StatsTube {tube: tube})
+));
+
+named!(use_command <Command>, do_parse!(
+    tag!("use ") >>
+//    opt!(tag!(" ")) >>
+//    tube: opt!(do_parse!(
+//        tag!(" ") >>
+//        tube: alphanumeric >>
+//        (tube)
+//    )) >>
+    tag!("\r\n") >>
+//    (Command::UseTube {tube: tube.unwrap_or("default".as_bytes())})
+    (Command::UseTube {tube: "default".as_bytes()})
+));
+
+named!(peek_ready_command <Command>, do_parse!(
+    tag!("peek-ready\r\n") >>
+    (Command::PeekReady {})
+));
+
+named!(peek_delayed_command <Command>, do_parse!(
+    tag!("peek-delayed\r\n") >>
+    (Command::PeekDelayed {})
+));
+
+named!(peek_buried_command <Command>, do_parse!(
+    tag!("peek-buried\r\n") >>
+    (Command::PeekBuried {})
+));
+
 pub struct Parser {
     data: Vec<u8>,
     position: usize,
@@ -66,7 +124,7 @@ impl Parser {
 
         let len = self.data.len();
         let add = if len == 0 {
-            16
+            32 // todo: parser only reads until this
         } else if self.written * 2 > len {
             len
         } else {
@@ -92,6 +150,9 @@ impl Parser {
 
     pub fn next(&mut self) -> Result<Command, ParseError> {
         let data = &(&*self.data)[self.position..self.written];
+
+        println!("Trying to parse data '{}'", str::from_utf8(data).unwrap());
+
         self.position += data.len();
 
         match beanstalk_command(data) {
@@ -108,6 +169,13 @@ pub enum Command<'a> {
     Reserve,
     Delete {id: &'a [u8]},
     Release {id: &'a [u8], pri: &'a [u8], delay: &'a [u8]},
+    Watch {tube: &'a [u8]},
+    ListTubes {},
+    StatsTube {tube: &'a [u8]},
+    UseTube {tube: &'a [u8]},
+    PeekReady {},
+    PeekDelayed {},
+    PeekBuried {},
 }
 
 #[cfg(test)]
@@ -152,5 +220,21 @@ mod tests {
         assert_eq!(beanstalk_command(b"delete aaa\r\n"), IResult::Error(ErrorKind::Alt));
         assert_eq!(beanstalk_command(b"delete 1100 aaa\r\n"), IResult::Error(ErrorKind::Alt));
         assert_eq!(beanstalk_command(b"delete aaa 12\r\n"), IResult::Error(ErrorKind::Alt));
+    }
+
+    #[test]
+    fn parsing_use_command() {
+//        assert_eq!(
+//            beanstalk_command(b"use\r\n"),
+//            IResult::Done(&b""[..], Command::UseTube {tube: &b"default"[..]})
+//        );
+        assert_eq!(
+            beanstalk_command(b"use \r\n"),
+            IResult::Done(&b""[..], Command::UseTube {tube: &b"default"[..]})
+        );
+//        assert_eq!(
+//            beanstalk_command(b"use tubename\r\n"),
+//            IResult::Done(&b""[..], Command::UseTube {tube: &b"tubename"[..]})
+//        );
     }
 }

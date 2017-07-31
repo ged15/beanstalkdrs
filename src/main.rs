@@ -104,6 +104,51 @@ impl Server {
                                 None => self.stream.write(b"NOT FOUND\r\n"),
                             };
                         },
+                        Command::Watch {tube} => {
+                            self.stream.write(b"WATCHING 1\r\n");
+                        },
+                        Command::ListTubes {} => {
+                            let tube_list = "default";
+                            self.stream.write(format!(
+                                "OK {}\r\n{}\r\n",
+                                tube_list.len(),
+                                tube_list
+                            ).as_bytes());
+                        },
+                        Command::StatsTube {tube} => {
+                            let stats = "name: default
+current-jobs-urgent: 0
+current-jobs-ready: 0
+current-jobs-reserved: 0
+current-jobs-delayed: 0
+current-jobs-buried: 0
+total-jobs: 0
+current-using: 0
+current-waiting: 0
+current-watching: 0
+pause: 0
+cmd-delete: 0
+cmd-pause-tube: 0
+pause-time-left: 0
+";
+                            self.stream.write(format!(
+                                "OK {}\r\n{}\r\n",
+                                stats.len(),
+                                stats
+                            ).as_bytes());
+                        },
+                        Command::UseTube {tube} => {
+                            self.stream.write(format!("USING {:?}\r\n", tube).as_bytes());
+                        },
+                        Command::PeekReady {} => {
+                            self.stream.write(b"NOT_FOUND\r\n");
+                        },
+                        Command::PeekDelayed {} => {
+                            self.stream.write(b"NOT_FOUND\r\n");
+                        },
+                        Command::PeekBuried {} => {
+                            self.stream.write(b"NOT_FOUND\r\n");
+                        },
                     };
                 },
                 Err(err) => {
