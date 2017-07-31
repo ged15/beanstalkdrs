@@ -74,7 +74,10 @@ impl Server {
 
     fn delete(&mut self, id: &u8) -> Option<Job> {
         println!("Deleting job {}", id);
-        self.ready_jobs.remove(id)
+        match self.ready_jobs.remove(id) {
+            Some(job) => Some(job),
+            None => self.reserved_jobs.remove(id),
+        }
     }
 
     fn run(&mut self) {
