@@ -1,4 +1,4 @@
-use nom::{IResult, space, alphanumeric, digit};
+use nom::{IResult, alphanumeric, digit};
 use std::iter;
 
 #[derive(Debug, PartialEq)]
@@ -95,7 +95,7 @@ impl Parser {
         self.position += data.len();
 
         match beanstalk_command(data) {
-            IResult::Done(i, o) => Ok(o),
+            IResult::Done(_, o) => Ok(o),
             IResult::Incomplete(_) => Err(ParseError::Incomplete),
             IResult::Error(_) => Err(ParseError::InvalidArgument),
         }

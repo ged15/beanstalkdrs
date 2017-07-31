@@ -12,14 +12,16 @@ use jobqueue::*;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::str;
+use std::sync::{Arc, Mutex};
+use std::thread;
 
 struct Server {
     stream: TcpStream,
-    job_queue: JobQueue,
+    job_queue: Arc<Mutex<JobQueue>>,
 }
 
 impl Server {
-    fn new(stream: TcpStream, job_queue: JobQueue) -> Server {
+    fn new(stream: TcpStream, job_queue: Arc<Mutex<JobQueue>>) -> Server {
         Server {
             stream: stream,
             job_queue: job_queue,
@@ -58,19 +60,21 @@ impl Server {
                 Ok(command) => {
                     println!("Received command {:?}", command);
 
+                    let mut job_queue = self.job_queue.lock().unwrap();
+
                     match command {
                         Command::Put {data} => {
                             let mut alloc_data = Vec::new();
                             alloc_data.extend_from_slice(data);
 
-                            let id = self.job_queue.put(1, 1, 1, alloc_data);
+                            let id = job_queue.put(1, 1, 1, alloc_data);
 
                             let response = format!("INSERTED {}\r\n", id);
 
                             self.stream.write(response.as_bytes());
                         },
                         Command::Reserve => {
-                            let (job_id, job_data) = self.job_queue.reserve();
+                            let (job_id, job_data) = job_queue.reserve();
 
                             let header = format!("RESERVED {} {}\r\n", job_id, job_data.len());
 
@@ -84,7 +88,7 @@ impl Server {
                                 .parse::<u8>()
                                 .unwrap();
 
-                            match self.job_queue.delete(&id) {
+                            match job_queue.delete(&id) {
                                 Some(_) => self.stream.write(b"DELETED\r\n"),
                                 None => self.stream.write(b"NOT FOUND\r\n"),
                             };
@@ -95,7 +99,7 @@ impl Server {
                                 .parse::<u8>()
                                 .unwrap();
 
-                            match self.job_queue.release(&id) {
+                            match job_queue.release(&id) {
                                 Some(_) => self.stream.write(b"RELEASED\r\n"),
                                 None => self.stream.write(b"NOT FOUND\r\n"),
                             };
@@ -123,12 +127,19 @@ impl Server {
 fn main() {
     let listener = TcpListener::bind("127.0.0.1:11300").unwrap();
 
+    let job_queue = Arc::new(Mutex::new(JobQueue::new()));
+
     for stream in listener.incoming() {
         match stream {
             Err(_) => panic!("error listen"),
             Ok(stream) => {
-                let mut server = Server::new(stream, JobQueue::new());
-                server.run();
+                let job_queue = job_queue.clone();
+                thread::spawn(move || {
+                    println!("client connected");
+
+                    let mut server = Server::new(stream, job_queue);
+                    server.run();
+                });
             },
         };
     }
