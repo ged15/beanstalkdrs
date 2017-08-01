@@ -118,7 +118,29 @@ impl JobQueue {
                     kicks: 0,
                 })
             },
-            None => None,
+            None => {
+                match self.reserved_jobs.get(id) {
+                    Some(job) => {
+                        Some(StatsJobResponse {
+                            id: *id,
+                            tube: "default".to_string(),
+                            state: "reserved".to_string(),
+                            pri: 0,
+                            age: 0,
+                            delay: 0,
+                            ttr: 0,
+                            time: 0,
+                            file: 0,
+                            reserves: 0,
+                            timeouts: 0,
+                            releases: 0,
+                            buries: 0,
+                            kicks: 0,
+                        })
+                    },
+                    None => None,
+                }
+            },
         }
     }
 
@@ -228,4 +250,24 @@ enum JobState {
     Delayed,
     Reserved,
     Buried
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nom::{IResult, ErrorKind};
+
+    #[test]
+    fn stats_job_checks_ready_and_reserved_jobs() {
+        let mut sut = JobQueue::new();
+
+        let id1 = sut.put(1, 1, 1, "job1".to_string().into_bytes());
+        let id2 = sut.put(1, 1, 1, "job2".to_string().into_bytes());
+
+        let (reserved_job_id, _) = sut.reserve();
+
+        assert!(sut.stats_job(&id1).is_some());
+        assert!(sut.stats_job(&id2).is_some());
+        assert!(sut.stats_job(&reserved_job_id).is_some());
+    }
 }
