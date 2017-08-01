@@ -11,7 +11,6 @@ pub enum ParseError {
 }
 
 // todo: parser for tube name (max 200 chars)
-// todo: parser for data
 // todo: parser for ID
 // todo: return ID as u8
 
@@ -31,7 +30,6 @@ named!(beanstalk_command <&[u8], Command>, alt!(
     stats_job_command
 ));
 
-// @todo messes up when command data contains \r\n
 named!(put_command <Command>, do_parse!(
     tag!("put ") >>
     digit >>
@@ -40,9 +38,9 @@ named!(put_command <Command>, do_parse!(
     tag!(" ") >>
     digit >>
     tag!(" ") >>
-    digit >>
+    len: map!(digit, |len| str::from_utf8(len).unwrap().parse::<usize>().unwrap()) >>
     tag!("\r\n") >>
-    data: alphanumeric >>
+    data: take!(len) >>
     tag!("\r\n") >>
     (Command::Put {data: data})
 ));
@@ -216,6 +214,14 @@ mod tests {
         assert_eq!(
             beanstalk_command(b"put 1 10 60 5\r\nlabas\r\n"),
             IResult::Done(&b""[..], Command::Put {data: &b"labas"[..]})
+        );
+    }
+
+    #[test]
+    fn parsing_put_command_when_data_contains_new_line() {
+        assert_eq!(
+            beanstalk_command(b"put 1 10 60 7\r\nlab\r\nas\r\n"),
+            IResult::Done(&b""[..], Command::Put {data: &b"lab\r\nas"[..]})
         );
     }
 

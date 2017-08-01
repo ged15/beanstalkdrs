@@ -239,7 +239,6 @@ pause-time-left: 0
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nom::{IResult, ErrorKind};
 
     #[test]
     fn stats_job_checks_ready_and_reserved_jobs() {
