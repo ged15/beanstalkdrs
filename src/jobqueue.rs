@@ -46,9 +46,8 @@ impl JobQueue {
     }
 
     pub fn reserve(&mut self) -> (u8, Vec<u8>) {
-        // todo: can we use take(1) here?
         let key = self.ready_jobs.iter()
-            .find(|&(_, &_)| true)
+            .next()
             .map(|(key, _)| key.clone());
 
         match key {
