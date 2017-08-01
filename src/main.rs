@@ -54,18 +54,19 @@ impl Server {
                 };
                 parser.written += len;
 
-                // client closed connection
                 if len == 0 {
-                    println!("Client closed connection");
+                    debug!("Client closed connection");
                     break;
                 }
             }
 
             match parser.next() {
                 Ok(command) => {
-                    println!("Received command {:?}", command);
+                    debug!("Received command {:?}", command);
 
                     let mut job_queue = self.job_queue.lock().unwrap();
+
+                    let not_found_response = b"NOT_FOUND\r\n";
 
                     match command {
                         Command::Put {data} => {
@@ -95,7 +96,7 @@ impl Server {
 
                             match job_queue.delete(&id) {
                                 Some(_) => self.stream.write(b"DELETED\r\n"),
-                                None => self.stream.write(b"NOT FOUND\r\n"),
+                                None => self.stream.write(not_found_response),
                             };
                         },
                         Command::Release {id, pri, delay} => {
@@ -106,7 +107,7 @@ impl Server {
 
                             match job_queue.release(&id) {
                                 Some(_) => self.stream.write(b"RELEASED\r\n"),
-                                None => self.stream.write(b"NOT FOUND\r\n"),
+                                None => self.stream.write(not_found_response),
                             };
                         },
                         Command::Watch {tube} => {
@@ -121,26 +122,10 @@ impl Server {
                             ).as_bytes());
                         },
                         Command::StatsTube {tube} => {
-                            let stats = "name: default
-current-jobs-urgent: 0
-current-jobs-ready: 0
-current-jobs-reserved: 0
-current-jobs-delayed: 0
-current-jobs-buried: 0
-total-jobs: 0
-current-using: 0
-current-waiting: 0
-current-watching: 0
-pause: 0
-cmd-delete: 0
-cmd-pause-tube: 0
-pause-time-left: 0
-";
-                            self.stream.write(format!(
-                                "OK {}\r\n{}\r\n",
-                                stats.len(),
-                                stats
-                            ).as_bytes());
+                            match job_queue.stats_tube() {
+                                Some(response) => self.stream.write(response.to_string().as_bytes()),
+                                None => self.stream.write(not_found_response),
+                            };
                         },
                         Command::Use {tube} => {
                             self.stream.write(format!("USING {:?}\r\n", tube).as_bytes());
@@ -157,15 +142,15 @@ pause-time-left: 0
                                     self.stream.write(b"\r\n");
                                 },
                                 None => {
-                                    self.stream.write(b"NOT_FOUND\r\n");
+                                    self.stream.write(not_found_response);
                                 },
                             };
                         },
                         Command::PeekDelayed {} => {
-                            self.stream.write(b"NOT_FOUND\r\n");
+                            self.stream.write(not_found_response);
                         },
                         Command::PeekBuried {} => {
-                            self.stream.write(b"NOT_FOUND\r\n");
+                            self.stream.write(not_found_response);
                         },
                         Command::StatsJob {id} => {
                             let id = str::from_utf8(id)
@@ -175,46 +160,10 @@ pause-time-left: 0
 
                             match job_queue.stats_job(&id) {
                                 Some(response) => {
-                                    let yaml = format!(
-                                        "---\n\
-id: {}\n\
-tube: {}\n\
-state: {}\n\
-pri: {}\n\
-age: {}\n\
-delay: {}\n\
-ttr: {}\n\
-time: {}\n\
-file: {}\n\
-reserves: {}\n\
-timeouts: {}\n\
-releases: {}\n\
-buries: {}\n\
-kicks: {}\n",
-                                        response.id,
-                                        response.tube,
-                                        response.state,
-                                        response.pri,
-                                        response.age,
-                                        response.delay,
-                                        response.ttr,
-                                        response.time,
-                                        response.file,
-                                        response.reserves,
-                                        response.timeouts,
-                                        response.releases,
-                                        response.buries,
-                                        response.kicks,
-                                    );
-
-                                    self.stream.write(
-                                        format!("OK {}\r\n", yaml.len()).as_bytes()
-                                    );
-                                    self.stream.write(yaml.as_bytes());
-                                    self.stream.write(b"\r\n");
+                                    self.stream.write(response.to_string().as_bytes());
                                 },
                                 None => {
-                                    self.stream.write(b"NOT_FOUND\r\n");
+                                    self.stream.write(not_found_response);
                                 },
                             };
 

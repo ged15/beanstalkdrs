@@ -121,28 +121,111 @@ impl JobQueue {
             None => None,
         }
     }
+
+    pub fn stats_tube(&self) -> Option<StatsTubeResponse> {
+        Some(StatsTubeResponse {
+            current_jobs_ready: self.ready_jobs.len(),
+            current_jobs_reserved: self.reserved_jobs.len(),
+            total_jobs: self.ready_jobs.len() + self.reserved_jobs.len(),
+        })
+    }
 }
 
 pub struct StatsJobResponse {
-    pub id: u8,
-    pub tube: String,
-    pub state: String,
-    pub pri: u8,
-    pub age: u8,
-    pub delay: u8,
-    pub ttr: u8,
-    pub time: u8,
-    pub file: u8,
-    pub reserves: u8,
-    pub timeouts: u8,
-    pub releases: u8,
-    pub buries: u8,
-    pub kicks: u8,
+    id: u8,
+    tube: String,
+    state: String,
+    pri: u8,
+    age: u8,
+    delay: u8,
+    ttr: u8,
+    time: u8,
+    file: u8,
+    reserves: u8,
+    timeouts: u8,
+    releases: u8,
+    buries: u8,
+    kicks: u8,
+}
+
+impl StatsJobResponse {
+    pub fn to_string(&self) -> String {
+        let yaml = format!(
+            "---\n\
+id: {}\n\
+tube: {}\n\
+state: {}\n\
+pri: {}\n\
+age: {}\n\
+delay: {}\n\
+ttr: {}\n\
+time: {}\n\
+file: {}\n\
+reserves: {}\n\
+timeouts: {}\n\
+releases: {}\n\
+buries: {}\n\
+kicks: {}\n",
+            self.id,
+            self.tube,
+            self.state,
+            self.pri,
+            self.age,
+            self.delay,
+            self.ttr,
+            self.time,
+            self.file,
+            self.reserves,
+            self.timeouts,
+            self.releases,
+            self.buries,
+            self.kicks,
+        );
+
+        format!("OK {}\r\n{}\r\n", yaml.len(), yaml)
+    }
+}
+
+struct StatsTubeResponse {
+    current_jobs_ready: usize,
+    current_jobs_reserved: usize,
+    total_jobs: usize,
+}
+
+impl StatsTubeResponse {
+    pub fn to_string(&self) -> String {
+        let stats = format!(
+            "---
+name: default
+current-jobs-urgent: 0
+current-jobs-ready: {}
+current-jobs-reserved: {}
+current-jobs-delayed: 0
+current-jobs-buried: 0
+total-jobs: {}
+current-using: 0
+current-waiting: 0
+current-watching: 0
+pause: 0
+cmd-delete: 0
+cmd-pause-tube: 0
+pause-time-left: 0
+",
+        self.current_jobs_ready,
+        self.current_jobs_reserved,
+        self.total_jobs
+        );
+        format!(
+            "OK {}\r\n{}\r\n",
+            stats.len(),
+            stats
+        )
+    }
 }
 
 enum JobState {
     Ready,
     Delayed,
     Reserved,
-    Burried
+    Buried
 }
