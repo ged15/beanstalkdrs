@@ -270,4 +270,24 @@ mod tests {
         assert!(sut.stats_job(&id2).is_some());
         assert!(sut.stats_job(&reserved_job_id).is_some());
     }
+
+    #[test]
+    fn delete_checks_ready_and_reserved_jobs() {
+        let mut sut = JobQueue::new();
+
+        let id1 = sut.put(1, 1, 1, "job1".to_string().into_bytes());
+        let id2 = sut.put(1, 1, 1, "job2".to_string().into_bytes());
+
+        let (reserved_job_id, _) = sut.reserve();
+
+        if id1 != reserved_job_id {
+            assert!(sut.delete(&id1).is_some());
+        }
+
+        if id2 != reserved_job_id {
+            assert!(sut.delete(&id2).is_some());
+        }
+
+        assert!(sut.delete(&reserved_job_id).is_some());
+    }
 }
