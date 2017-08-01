@@ -1,22 +1,13 @@
 use std::collections::HashMap;
 
-struct Job {
+pub struct Job {
     id: u8,
-    priority: u8,
-    delay: u8,
-    ttr: u8,
     data: Vec<u8>,
 }
 
 impl Job {
     fn new(id: u8, data: Vec<u8>) -> Job {
-        Job {
-            id: id,
-            priority: 0,
-            delay: 0,
-            ttr: 1,
-            data: data,
-        }
+        Job { id: id, data: data }
     }
 }
 
@@ -35,6 +26,7 @@ impl JobQueue {
         }
     }
 
+    #[allow(unused_variables)]
     pub fn put(&mut self, pri: u8, delay: u8, ttr: u8, data: Vec<u8>) -> u8 {
         self.auto_increment_index += 1;
 
@@ -99,7 +91,7 @@ impl JobQueue {
 
     pub fn stats_job(&self, id: &u8) -> Option<StatsJobResponse> {
         match self.ready_jobs.get(id) {
-            Some(job) => {
+            Some(_) => {
                 Some(StatsJobResponse {
                     id: *id,
                     tube: "default".to_string(),
@@ -119,7 +111,7 @@ impl JobQueue {
             },
             None => {
                 match self.reserved_jobs.get(id) {
-                    Some(job) => {
+                    Some(_) => {
                         Some(StatsJobResponse {
                             id: *id,
                             tube: "default".to_string(),
@@ -207,7 +199,7 @@ kicks: {}\n",
     }
 }
 
-struct StatsTubeResponse {
+pub struct StatsTubeResponse {
     current_jobs_ready: usize,
     current_jobs_reserved: usize,
     total_jobs: usize,
@@ -242,13 +234,6 @@ pause-time-left: 0
             stats
         )
     }
-}
-
-enum JobState {
-    Ready,
-    Delayed,
-    Reserved,
-    Buried
 }
 
 #[cfg(test)]

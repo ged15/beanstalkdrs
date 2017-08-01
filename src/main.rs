@@ -68,6 +68,7 @@ impl Server {
 
                     let not_found_response = b"NOT_FOUND\r\n";
 
+                    #[allow(unused_must_use)]
                     match command {
                         Command::Put {data} => {
                             let mut alloc_data = Vec::new();
@@ -99,7 +100,7 @@ impl Server {
                                 None => self.stream.write(not_found_response),
                             };
                         },
-                        Command::Release {id, pri, delay} => {
+                        Command::Release { id, .. } => {
                             let id = str::from_utf8(id)
                                 .unwrap()
                                 .parse::<u8>()
@@ -110,7 +111,7 @@ impl Server {
                                 None => self.stream.write(not_found_response),
                             };
                         },
-                        Command::Watch {tube} => {
+                        Command::Watch { .. } => {
                             self.stream.write(b"WATCHING 1\r\n");
                         },
                         Command::ListTubes {} => {
@@ -121,7 +122,7 @@ impl Server {
                                 tube_list
                             ).as_bytes());
                         },
-                        Command::StatsTube {tube} => {
+                        Command::StatsTube { .. } => {
                             match job_queue.stats_tube() {
                                 Some(response) => self.stream.write(response.to_string().as_bytes()),
                                 None => self.stream.write(not_found_response),
