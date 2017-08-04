@@ -19,6 +19,9 @@ use std::net::{TcpListener, TcpStream};
 use std::str;
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::iter;
+
+use nom::IResult;
 
 struct Server {
     stream: TcpStream,
@@ -34,25 +37,27 @@ impl Server {
     }
 
     fn run(&mut self) {
-        let mut parser = Parser::new();
+        let mut buffer = vec![];
+        let mut written = 0;
 
         loop {
-            if parser.is_incomplete() {
-                parser.allocate();
-                let len = {
-                    let pos = parser.written;
-                    let mut buffer = parser.get_mut();
+            let incomplete = match parse_beanstalk_command(&(&*buffer)[0..written]) {
+                IResult::Incomplete(_) => true,
+                _ => false,
+            };
 
-                    // read socket
-                    match self.stream.read(&mut buffer[pos..]) {
-                        Ok(r) => r,
-                        Err(err) => {
-                            println!("Reading from client: {:?}", err);
-                            break;
-                        }
-                    }
+            if incomplete {
+                buffer.extend(iter::repeat(0).take(16));
+
+                let pos = written;
+                let len = match self.stream.read(&mut buffer[pos..]) {
+                    Ok(r) => r,
+                    Err(err) => {
+                        warn!("Failed reading from client: {:?}", err);
+                        break;
+                    },
                 };
-                parser.written += len;
+                written += len;
 
                 if len == 0 {
                     debug!("Client closed connection");
@@ -60,8 +65,8 @@ impl Server {
                 }
             }
 
-            match parser.next() {
-                Ok(command) => {
+            match parse_beanstalk_command(&(&*buffer)[0..written]) {
+                IResult::Done(_, command) => {
                     debug!("Received command {:?}", command);
 
                     let mut job_queue = self.job_queue.lock().unwrap();
@@ -171,20 +176,18 @@ impl Server {
                         },
                     };
                 },
-                Err(err) => {
-                    match err {
-                        // if it's incomplete, keep adding to the buffer
-                        ParseError::Incomplete => {
-                            println!("Incomplete");
-                            continue;
-                        }
-                        _ => {
-                            println!("Protocol error from client: {:?}", err);
-                            break;
-                        }
-                    }
+                IResult::Incomplete(_) => {
+                    debug!("Unable to parse command - incomplete. Trying to read more data.");
+                    continue;
+                },
+                IResult::Error(err) => {
+                    debug!("Protocol error from client: {:?}", err);
+                    break;
                 }
             };
+
+            buffer = vec![];
+            written = 0;
         }
     }
 }

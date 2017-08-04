@@ -1,16 +1,7 @@
 use nom::{IResult, alphanumeric, digit};
-use std::iter;
 use std::str;
 
-#[derive(Debug, PartialEq)]
-pub enum ParseError {
-    /// The received buffer is valid but needs more data
-    Incomplete,
-    /// Expected one type of argument and received another
-    InvalidArgument,
-}
-
-// todo: parser for tube name (max 200 chars)
+// todo: parser for tube name (max 200 bytes)
 // todo: parser for ID
 // todo: return ID as u8
 
@@ -126,66 +117,9 @@ named!(stats_job_command <Command>, do_parse!(
     (Command::StatsJob {id: id})
 ));
 
-pub struct Parser {
-    data: Vec<u8>,
-    position: usize,
-    pub written: usize,
-}
-
-impl Parser {
-    pub fn new() -> Parser {
-        Parser {
-            data: vec![],
-            position: 0,
-            written: 0,
-        }
-    }
-
-    pub fn allocate(&mut self) {
-        if self.position > 0 && self.written == self.position {
-            self.written = 0;
-            self.position = 0;
-        }
-
-        let len = self.data.len();
-        let add = if len == 0 {
-            32 // todo: parser only reads until this
-        } else if self.written * 2 > len {
-            len
-        } else {
-            0
-        };
-
-        if add > 0 {
-            self.data.extend(iter::repeat(0).take(add));
-        }
-    }
-
-    pub fn get_mut(&mut self) -> &mut Vec<u8> {
-        &mut self.data
-    }
-
-    pub fn is_incomplete(&self) -> bool {
-        let data = &(&*self.data)[self.position..self.written];
-        match beanstalk_command(data) {
-            IResult::Incomplete(_) => true,
-            _ => false,
-        }
-    }
-
-    pub fn next(&mut self) -> Result<Command, ParseError> {
-        let data = &(&*self.data)[self.position..self.written];
-
-        println!("Trying to parse data '{}'", str::from_utf8(data).unwrap().trim_right());
-
-        self.position += data.len();
-
-        match beanstalk_command(data) {
-            IResult::Done(_, o) => Ok(o),
-            IResult::Incomplete(_) => Err(ParseError::Incomplete),
-            IResult::Error(_) => Err(ParseError::InvalidArgument),
-        }
-    }
+pub fn parse_beanstalk_command(data: &[u8]) -> IResult<&[u8], Command> {
+    debug!("Trying to parse '{}'", str::from_utf8(data).unwrap());
+    beanstalk_command(data)
 }
 
 #[derive(Debug, PartialEq)]
@@ -271,4 +205,34 @@ mod tests {
             IResult::Done(&b""[..], Command::Use {tube: &b"tubename"[..]})
         );
     }
+
+//    #[test]
+//    fn parsing_more_data_than_fits_in_buffer() {
+//        let mut sut = Parser::new();
+//
+//        assert!(sut.is_incomplete());
+//        assert_eq!(sut.written, 0);
+//        assert_eq!(sut.next(), Err(ParseError::Incomplete));
+//
+//        sut.allocate();
+//        sut.get_mut()[0..].copy_from_slice(&b"put 1 1 1 4\r\n111"[..]);
+//        sut.written += 16;
+//
+//        assert!(sut.is_incomplete());
+//        assert_eq!(sut.next(), Err(ParseError::Incomplete));
+//
+//        sut.allocate();
+//
+//        {
+//            let mut buff = sut.get_mut();
+//            buff[16] = 52;
+//            buff[17] = 13;
+//            buff[18] = 10;
+//        }
+//
+//        sut.written += 3;
+//
+//        assert_eq!(sut.is_incomplete(), false);
+//        assert_eq!(sut.next(), Ok(Command::Put {data: &b"1114"[..]}));
+//    }
 }
