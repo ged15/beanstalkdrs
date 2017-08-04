@@ -8,9 +8,9 @@ mod parser;
 
 use parser::*;
 
-mod jobqueue;
+mod job_queue;
 
-use jobqueue::*;
+use job_queue::*;
 
 mod pretty_env_logger;
 
