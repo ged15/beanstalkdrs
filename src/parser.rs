@@ -80,7 +80,7 @@ named!(stats_tube_command <Command>, do_parse!(
 
 named!(use_command <Command>, do_parse!(
     tag!("use") >>
-    tube: alt!(
+    tube: map!(alt!(
         map!(
             do_parse!(opt!(tag!(" ")) >> tag!("\r\n") >> ()),
             |_| "default".as_bytes()
@@ -91,7 +91,7 @@ named!(use_command <Command>, do_parse!(
             tag!("\r\n") >>
             (tube)
         )
-    ) >>
+    ), |t: &[u8]| String::from_utf8_lossy(t).to_string()) >>
     (Command::Use {tube: tube})
 ));
 
@@ -131,7 +131,7 @@ pub enum Command<'a> {
     Watch {tube: &'a [u8]},
     ListTubes {},
     StatsTube {tube: &'a [u8]},
-    Use {tube: &'a [u8]},
+    Use {tube: String},
     PeekReady {},
     PeekDelayed {},
     PeekBuried {},
@@ -194,15 +194,15 @@ mod tests {
     fn parsing_use_command() {
         assert_eq!(
             beanstalk_command(b"use\r\n"),
-            IResult::Done(&b""[..], Command::Use {tube: &b"default"[..]})
+            IResult::Done(&b""[..], Command::Use {tube: String::from("default")})
         );
         assert_eq!(
             beanstalk_command(b"use \r\n"),
-            IResult::Done(&b""[..], Command::Use {tube: &b"default"[..]})
+            IResult::Done(&b""[..], Command::Use {tube: String::from("default")})
         );
         assert_eq!(
             beanstalk_command(b"use tubename\r\n"),
-            IResult::Done(&b""[..], Command::Use {tube: &b"tubename"[..]})
+            IResult::Done(&b""[..], Command::Use {tube: String::from("tubename")})
         );
     }
 

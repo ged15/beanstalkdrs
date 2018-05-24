@@ -40,6 +40,8 @@ impl Server {
         let mut buffer = vec![];
         let mut written = 0;
 
+        let mut tube_name = String::from("default");
+
         loop {
             let incomplete = match parse_beanstalk_command(&(&*buffer)[0..written]) {
                 IResult::Incomplete(_) => true,
@@ -134,6 +136,7 @@ impl Server {
                             };
                         },
                         Command::Use {tube} => {
+                            tube_name = tube.clone();
                             self.stream.write(format!("USING {:?}\r\n", tube).as_bytes());
                         },
                         Command::PeekReady {} => {
