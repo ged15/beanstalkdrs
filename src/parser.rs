@@ -1,7 +1,6 @@
-use nom::{IResult, alphanumeric, digit};
+use nom::{alphanumeric, digit, IResult};
 use std::str;
 
-// todo: parser for tube name (max 200 bytes)
 // todo: parser for ID
 // todo: return ID as u8
 
@@ -61,7 +60,7 @@ named!(release_command <Command>, do_parse!(
 
 named!(watch_command <Command>, do_parse!(
     tag!("watch ") >>
-    tube: alphanumeric >>
+    tube: tube_name >>
     tag!("\r\n") >>
     (Command::Watch {tube: tube})
 ));
@@ -73,25 +72,15 @@ named!(list_tubes_command <Command>, do_parse!(
 
 named!(stats_tube_command <Command>, do_parse!(
     tag!("stats-tube ") >>
-    tube: alphanumeric >>
+    tube: tube_name >>
     tag!("\r\n") >>
     (Command::StatsTube {tube: tube})
 ));
 
 named!(use_command <Command>, do_parse!(
-    tag!("use") >>
-    tube: map!(alt!(
-        map!(
-            do_parse!(opt!(tag!(" ")) >> tag!("\r\n") >> ()),
-            |_| "default".as_bytes()
-        ) |
-        do_parse!(
-            tag!(" ") >>
-            tube: alphanumeric >>
-            tag!("\r\n") >>
-            (tube)
-        )
-    ), |t: &[u8]| String::from_utf8_lossy(t).to_string()) >>
+    tag!("use ") >>
+    tube: map!(tube_name, |t: &[u8]| String::from_utf8_lossy(t).to_string()) >>
+    tag!("\r\n") >>
     (Command::Use {tube: tube})
 ));
 
@@ -117,6 +106,9 @@ named!(stats_job_command <Command>, do_parse!(
     (Command::StatsJob {id: id})
 ));
 
+// todo: parser for tube name should consume max 200 bytes
+named!(tube_name, call!(alphanumeric));
+
 pub fn parse_beanstalk_command(data: &[u8]) -> IResult<&[u8], Command> {
     debug!("Trying to parse '{}'", str::from_utf8(data).unwrap());
     beanstalk_command(data)
@@ -140,8 +132,8 @@ pub enum Command<'a> {
 
 #[cfg(test)]
 mod tests {
+    use nom::{ErrorKind, IResult};
     use super::*;
-    use nom::{IResult, ErrorKind};
 
     #[test]
     fn parsing_put_command() {
@@ -192,14 +184,6 @@ mod tests {
 
     #[test]
     fn parsing_use_command() {
-        assert_eq!(
-            beanstalk_command(b"use\r\n"),
-            IResult::Done(&b""[..], Command::Use {tube: String::from("default")})
-        );
-        assert_eq!(
-            beanstalk_command(b"use \r\n"),
-            IResult::Done(&b""[..], Command::Use {tube: String::from("default")})
-        );
         assert_eq!(
             beanstalk_command(b"use tubename\r\n"),
             IResult::Done(&b""[..], Command::Use {tube: String::from("tubename")})
