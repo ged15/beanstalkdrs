@@ -1,27 +1,23 @@
 #[macro_use]
+extern crate log;
+#[macro_use]
 extern crate nom;
 
-#[macro_use]
-extern crate log;
-
-mod parser;
-
-use parser::*;
-
-mod job_queue;
-
 use job_queue::*;
-
-mod pretty_env_logger;
-
+use nom::IResult;
+use parser::*;
 use std::io::{Read, Write};
+use std::iter;
 use std::net::{TcpListener, TcpStream};
 use std::str;
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::iter;
 
-use nom::IResult;
+mod parser;
+
+mod job_queue;
+
+mod pretty_env_logger;
 
 struct Server {
     stream: TcpStream,
@@ -177,6 +173,7 @@ impl Server {
                             };
 
                         },
+                        Command::ReserveWithTimeout {timeout} => {},
                     };
                 },
                 IResult::Incomplete(_) => {

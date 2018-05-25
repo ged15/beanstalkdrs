@@ -105,6 +105,13 @@ named!(stats_job_command <Command>, do_parse!(
     (Command::StatsJob {id: id})
 ));
 
+named!(reserve_with_timeout_command <Command>, do_parse!(
+    tag!("reserve-with-timeout ") >>
+    timeout: digit >>
+    tag!("\r\n") >>
+    (Command::ReserveWithTimeout {timeout})
+));
+
 // todo: parser for tube name should consume max 200 bytes
 named!(tube_name, call!(alphanumeric));
 
@@ -129,6 +136,7 @@ pub enum Command<'a> {
     PeekDelayed {},
     PeekBuried {},
     StatsJob {id: &'a [u8]},
+    ReserveWithTimeout {timeout: &'a [u8]},
 }
 
 #[cfg(test)]
@@ -197,6 +205,14 @@ mod tests {
         assert_eq!(job_id(b"12aaa"), IResult::Done(&b"aaa"[..], &b"12"[..]));
         assert_eq!(job_id(b"aaa"), IResult::Error(ErrorKind::Digit));
         assert_eq!(job_id(b"aaa12"), IResult::Error(ErrorKind::Digit));
+    }
+
+    #[test]
+    fn parsing_reserve_with_timeout_command() {
+        assert_eq!(
+            reserve_with_timeout_command(b"reserve-with-timeout 10\r\n"),
+            IResult::Done(&b""[..], Command::ReserveWithTimeout {timeout: &b"10"[..]})
+        );
     }
 
 //    #[test]

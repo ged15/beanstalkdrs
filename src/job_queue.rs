@@ -11,6 +11,16 @@ impl Job {
     }
 }
 
+struct TubeName {
+    value: String
+}
+
+impl TubeName {
+    fn new(value: String) -> TubeName {
+        TubeName { value }
+    }
+}
+
 pub struct JobQueue {
     ready_jobs: HashMap<u8, Job>,
     reserved_jobs: HashMap<u8, Job>,
@@ -25,6 +35,8 @@ impl JobQueue {
             auto_increment_index: 0,
         }
     }
+
+    pub fn use_tube(&mut self, tube_name: TubeName) {}
 
     #[allow(unused_variables)]
     pub fn put(&mut self, pri: u8, delay: u8, ttr: u8, data: Vec<u8>) -> u8 {
@@ -272,5 +284,16 @@ mod tests {
         }
 
         assert!(sut.delete(&reserved_job_id).is_some());
+    }
+
+    #[test]
+    fn putting_job_into_specific_queue() {
+        let mut sut = JobQueue::new();
+
+        sut.use_tube(TubeName::new("some_tube".to_string()));
+        let id1 = sut.put(1, 1, 1, "job1".to_string().into_bytes());
+
+        sut.use_tube(TubeName::new("another_tube".to_string()));
+        let (reserved_job_id, _) = sut.reserve();
     }
 }
