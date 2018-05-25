@@ -1,7 +1,6 @@
 use nom::{alphanumeric, digit, IResult};
 use std::str;
 
-// todo: parser for ID
 // todo: return ID as u8
 
 // todo: make errors propagate from parsers
@@ -42,14 +41,14 @@ named!(reserve_command <Command>, do_parse!(
 
 named!(delete_command <Command>, do_parse!(
     tag!("delete ") >>
-    id: digit >>
+    id: job_id >>
     tag!("\r\n") >>
     (Command::Delete {id: id})
 ));
 
 named!(release_command <Command>, do_parse!(
     tag!("release ") >>
-    id: digit >>
+    id: job_id >>
     tag!(" ") >>
     pri: digit >>
     tag!(" ") >>
@@ -101,13 +100,15 @@ named!(peek_buried_command <Command>, do_parse!(
 
 named!(stats_job_command <Command>, do_parse!(
     tag!("stats-job ") >>
-    id: digit >>
+    id: job_id >>
     tag!("\r\n") >>
     (Command::StatsJob {id: id})
 ));
 
 // todo: parser for tube name should consume max 200 bytes
 named!(tube_name, call!(alphanumeric));
+
+named!(job_id, call!(digit));
 
 pub fn parse_beanstalk_command(data: &[u8]) -> IResult<&[u8], Command> {
     debug!("Trying to parse '{}'", str::from_utf8(data).unwrap());
@@ -188,6 +189,14 @@ mod tests {
             beanstalk_command(b"use tubename\r\n"),
             IResult::Done(&b""[..], Command::Use {tube: String::from("tubename")})
         );
+    }
+
+    #[test]
+    fn parsing_job_id() {
+        assert_eq!(job_id(b"12345"), IResult::Done(&b""[..], &b"12345"[..]));
+        assert_eq!(job_id(b"12aaa"), IResult::Done(&b"aaa"[..], &b"12"[..]));
+        assert_eq!(job_id(b"aaa"), IResult::Error(ErrorKind::Digit));
+        assert_eq!(job_id(b"aaa12"), IResult::Error(ErrorKind::Digit));
     }
 
 //    #[test]
