@@ -1,17 +1,32 @@
+extern crate futures;
 #[macro_use]
 extern crate log;
 #[macro_use]
 extern crate nom;
+extern crate tokio_core;
+extern crate tokio_io;
 
-use job_queue::*;
-use nom::IResult;
-use parser::*;
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::io::{Read, Write};
+use std::io::{BufReader, Error, ErrorKind};
 use std::iter;
-use std::net::{TcpListener, TcpStream};
+use std::rc::Rc;
 use std::str;
 use std::sync::{Arc, Mutex};
 use std::thread;
+
+use futures::Future;
+use futures::stream::{self, Stream};
+use nom::IResult;
+use tokio_core::net::TcpListener;
+use tokio_core::reactor::Core;
+use tokio_io::AsyncRead;
+use tokio_io::io;
+
+use job_queue::*;
+use parser::*;
+
 
 mod parser;
 
@@ -19,198 +34,98 @@ mod job_queue;
 
 mod pretty_env_logger;
 
-struct Server {
-    stream: TcpStream,
-    job_queue: Arc<Mutex<JobQueue>>,
-}
-
-impl Server {
-    fn new(stream: TcpStream, job_queue: Arc<Mutex<JobQueue>>) -> Server {
-        Server {
-            stream: stream,
-            job_queue: job_queue,
-        }
-    }
-
-    fn run(&mut self) {
-        let mut buffer = vec![];
-        let mut written = 0;
-
-        let mut tube_name = String::from("default");
-
-        loop {
-            let incomplete = match parse_beanstalk_command(&(&*buffer)[0..written]) {
-                IResult::Incomplete(_) => true,
-                _ => false,
-            };
-
-            if incomplete {
-                buffer.extend(iter::repeat(0).take(16));
-
-                let pos = written;
-                let len = match self.stream.read(&mut buffer[pos..]) {
-                    Ok(r) => r,
-                    Err(err) => {
-                        warn!("Failed reading from client: {:?}", err);
-                        break;
-                    },
-                };
-                written += len;
-
-                if len == 0 {
-                    debug!("Client closed connection");
-                    break;
-                }
-            }
-
-            match parse_beanstalk_command(&(&*buffer)[0..written]) {
-                IResult::Done(_, command) => {
-                    debug!("Received command {:?}", command);
-
-                    let mut job_queue = self.job_queue.lock().unwrap();
-
-                    let not_found_response = b"NOT_FOUND\r\n";
-
-                    #[allow(unused_must_use)]
-                    match command {
-                        Command::Put {data} => {
-                            let mut alloc_data = Vec::new();
-                            alloc_data.extend_from_slice(data);
-
-                            let id = job_queue.put(1, 1, 1, alloc_data);
-
-                            let response = format!("INSERTED {}\r\n", id);
-
-                            self.stream.write(response.as_bytes());
-                        },
-                        Command::Reserve => {
-                            let (job_id, job_data) = job_queue.reserve();
-
-                            let header = format!("RESERVED {} {}\r\n", job_id, job_data.len());
-
-                            self.stream.write(header.as_bytes());
-                            self.stream.write(job_data.as_slice());
-                            self.stream.write(b"\r\n");
-                        },
-                        Command::Delete {id} => {
-                            let id = str::from_utf8(id)
-                                .unwrap()
-                                .parse::<u8>()
-                                .unwrap();
-
-                            match job_queue.delete(&id) {
-                                Some(_) => self.stream.write(b"DELETED\r\n"),
-                                None => self.stream.write(not_found_response),
-                            };
-                        },
-                        Command::Release { id, .. } => {
-                            let id = str::from_utf8(id)
-                                .unwrap()
-                                .parse::<u8>()
-                                .unwrap();
-
-                            match job_queue.release(&id) {
-                                Some(_) => self.stream.write(b"RELEASED\r\n"),
-                                None => self.stream.write(not_found_response),
-                            };
-                        },
-                        Command::Watch { .. } => {
-                            self.stream.write(b"WATCHING 1\r\n");
-                        },
-                        Command::ListTubes {} => {
-                            let tube_list = "default";
-                            self.stream.write(format!(
-                                "OK {}\r\n{}\r\n",
-                                tube_list.len(),
-                                tube_list
-                            ).as_bytes());
-                        },
-                        Command::StatsTube { .. } => {
-                            match job_queue.stats_tube() {
-                                Some(response) => self.stream.write(response.to_string().as_bytes()),
-                                None => self.stream.write(not_found_response),
-                            };
-                        },
-                        Command::Use {tube} => {
-                            tube_name = tube.clone();
-                            self.stream.write(format!("USING {:?}\r\n", tube).as_bytes());
-                        },
-                        Command::PeekReady {} => {
-                            match job_queue.peek_ready() {
-                                Some((id, data)) => {
-                                    self.stream.write(format!(
-                                        "FOUND {} {}\r\n",
-                                        id,
-                                        data.len()
-                                    ).as_bytes());
-                                    self.stream.write(data.as_slice());
-                                    self.stream.write(b"\r\n");
-                                },
-                                None => {
-                                    self.stream.write(not_found_response);
-                                },
-                            };
-                        },
-                        Command::PeekDelayed {} => {
-                            self.stream.write(not_found_response);
-                        },
-                        Command::PeekBuried {} => {
-                            self.stream.write(not_found_response);
-                        },
-                        Command::StatsJob {id} => {
-                            let id = str::from_utf8(id)
-                                .unwrap()
-                                .parse::<u8>()
-                                .unwrap();
-
-                            match job_queue.stats_job(&id) {
-                                Some(response) => {
-                                    self.stream.write(response.to_string().as_bytes());
-                                },
-                                None => {
-                                    self.stream.write(not_found_response);
-                                },
-                            };
-
-                        },
-                        Command::ReserveWithTimeout {timeout} => {},
-                    };
-                },
-                IResult::Incomplete(_) => {
-                    debug!("Unable to parse command - incomplete. Trying to read more data.");
-                    continue;
-                },
-                IResult::Error(err) => {
-                    debug!("Protocol error from client: {:?}", err);
-                    break;
-                }
-            };
-
-            buffer = vec![];
-            written = 0;
-        }
-    }
-}
-
 fn main() {
     pretty_env_logger::init().unwrap();
 
-    let listener = TcpListener::bind("127.0.0.1:11300").unwrap();
+    let addr = "127.0.0.1:8080".parse().unwrap();
+
+    // Create the event loop and TCP listener we'll accept connections on.
+    let mut core = Core::new().unwrap();
+    let handle = core.handle();
+    let socket = TcpListener::bind(&addr, &handle).unwrap();
+    println!("Listening on: {}", addr);
+
+    // This is a single-threaded server, so we can just use Rc and RefCell to
+    // store the map of all connections we know about.
+    let connections = Rc::new(RefCell::new(HashMap::new()));
 
     let job_queue = Arc::new(Mutex::new(JobQueue::new()));
 
-    for stream in listener.incoming() {
-        match stream {
-            Err(_) => panic!("error listen"),
-            Ok(stream) => {
-                let job_queue = job_queue.clone();
-                thread::spawn(move || {
-                    debug!("Client connected");
+    let srv = socket.incoming().for_each(move |(stream, addr)| {
+        println!("New Connection: {}", addr);
+        let (reader, writer) = stream.split();
 
-                    let mut server = Server::new(stream, job_queue);
-                    server.run();
-                });
-            },
-        };
-    }
+        // Create a channel for our stream, which other sockets will use to
+        // send us messages. Then register our address with the stream to send
+        // data to us.
+        let (tx, rx) = futures::sync::mpsc::unbounded();
+        connections.borrow_mut().insert(addr, tx);
+
+        // Define here what we do for the actual I/O. That is, read a bunch of
+        // lines from the socket and dispatch them while we also write any lines
+        // from other sockets.
+        let connections_inner = connections.clone();
+        let reader = BufReader::new(reader);
+
+        // Model the read portion of this socket by mapping an infinite
+        // iterator to each line off the socket. This "loop" is then
+        // terminated with an error once we hit EOF on the socket.
+        let iter = stream::iter_ok::<_, Error>(iter::repeat(()));
+        let socket_reader = iter.fold(reader, move |reader, _| {
+            // Read a line off the socket, failing if we're at EOF
+            let line = io::read_until(reader, b'\n', Vec::new());
+            let line = line.and_then(move |(reader, vec)| {
+                let mut job_queue = job_queue.lock().unwrap();
+
+                let not_found_response = b"NOT_FOUND\r\n";
+
+                match parse_beanstalk_command(&vec[..]) {
+                    IResult::Done(_, command) => {
+                        debug!("Received command {:?}", command);
+//                        Ok((reader, command))
+                    },
+                    IResult::Incomplete(_) => {
+                        debug!("Unable to parse command - incomplete. Trying to read more data.");
+                    },
+                    IResult::Error(err) => {
+                        debug!("Protocol error from client: {:?}", err);
+                    }
+                };
+
+                Ok((reader, ""))
+            });
+
+            // Convert the bytes we read into a string, and then send that
+            // string to all other connected clients.
+//            let line = line.map(|(reader, vec)| {
+//                (reader, String::from_utf8(vec))
+//            });
+            let connections = connections_inner.clone();
+        });
+
+        // Whenever we receive a string on the Receiver, we write it to
+        // `WriteHalf<TcpStream>`.
+        let socket_writer = rx.fold(writer, |writer, msg:String| {
+            let amt = io::write_all(writer, msg.into_bytes());
+            let amt = amt.map(|(writer, _)| writer);
+            amt.map_err(|_| ())
+        });
+
+        // Now that we've got futures representing each half of the socket, we
+        // use the `select` combinator to wait for either half to be done to
+        // tear down the other. Then we spawn off the result.
+        let connections = connections.clone();
+        let socket_reader = socket_reader.map_err(|_| ());
+        let connection = socket_reader.map(|_| ()).select(socket_writer.map(|_| ()));
+        handle.spawn(connection.then(move |_| {
+            connections.borrow_mut().remove(&addr);
+            println!("Connection {} closed.", addr);
+            Ok(())
+        }));
+
+        Ok(())
+    });
+
+    // execute server
+    core.run(srv).unwrap();
 }
