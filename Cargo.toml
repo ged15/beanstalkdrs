@@ -1,5 +1,6 @@
 [package]
 name = "beanstalkdrs"
+edition = "2018"
 version = "0.1.0"
 authors = ["gediminas <gediminas@messagebird.com>"]
 
@@ -9,3 +10,13 @@ nom = "^3.2"
 log = "0.3"
 env_logger = "0.3"
 ansi_term = "0.9"
+
+futures-preview = { version = "=0.3.0-alpha.18" }
+
+#futures-core-preview = "=0.3.0-alpha.18"
+#futures-sink-preview = "=0.3.0-alpha.18"
+#futures-util-preview = { version = "=0.3.0-alpha.18", features = ["sink"] }
+
+tokio = "=0.2.0-alpha.2"
+#tokio-codec = "=0.2.0-alpha.2"
+#tokio-net = "=0.2.0-alpha.2" #features = ["async-traits"]

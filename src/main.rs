@@ -1,216 +1,98 @@
-#[macro_use]
-extern crate nom;
+extern crate tokio;
+extern crate futures;
 
 #[macro_use]
 extern crate log;
 
-mod parser;
+//extern crate tokio_codec;
+//extern crate tokio_net;
 
-use parser::*;
+use std::collections::HashMap;
+use std::env;
+use std::error::Error;
+use std::net::SocketAddr;
+use std::sync::{Arc, Mutex};
+
+use tokio::codec::{Framed, LinesCodec};
+use tokio::net::TcpListener;
+
+use futures::{SinkExt, StreamExt};
+
+mod pretty_env_logger;
 
 mod job_queue;
 
 use job_queue::*;
 
-mod pretty_env_logger;
-
-use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
-use std::str;
-use std::sync::{Arc, Mutex};
-use std::thread;
-use std::iter;
-
-use nom::IResult;
-
-struct Server {
-    stream: TcpStream,
-    job_queue: Arc<Mutex<JobQueue>>,
+struct Database {
+    map: Mutex<HashMap<String, String>>,
 }
 
-impl Server {
-    fn new(stream: TcpStream, job_queue: Arc<Mutex<JobQueue>>) -> Server {
-        Server {
-            stream: stream,
-            job_queue: job_queue,
-        }
-    }
-
-    fn run(&mut self) {
-        let mut buffer = vec![];
-        let mut written = 0;
-
-        loop {
-            let incomplete = match parse_beanstalk_command(&(&*buffer)[0..written]) {
-                IResult::Incomplete(_) => true,
-                _ => false,
-            };
-
-            if incomplete {
-                buffer.extend(iter::repeat(0).take(16));
-
-                let pos = written;
-                let len = match self.stream.read(&mut buffer[pos..]) {
-                    Ok(r) => r,
-                    Err(err) => {
-                        warn!("Failed reading from client: {:?}", err);
-                        break;
-                    },
-                };
-                written += len;
-
-                if len == 0 {
-                    debug!("Client closed connection");
-                    break;
-                }
-            }
-
-            match parse_beanstalk_command(&(&*buffer)[0..written]) {
-                IResult::Done(_, command) => {
-                    debug!("Received command {:?}", command);
-
-                    let mut job_queue = self.job_queue.lock().unwrap();
-
-                    let not_found_response = b"NOT_FOUND\r\n";
-
-                    #[allow(unused_must_use)]
-                    match command {
-                        Command::Put {data} => {
-                            let mut alloc_data = Vec::new();
-                            alloc_data.extend_from_slice(data);
-
-                            let id = job_queue.put(1, 1, 1, alloc_data);
-
-                            let response = format!("INSERTED {}\r\n", id);
-
-                            self.stream.write(response.as_bytes());
-                        },
-                        Command::Reserve => {
-                            let (job_id, job_data) = job_queue.reserve();
-
-                            let header = format!("RESERVED {} {}\r\n", job_id, job_data.len());
-
-                            self.stream.write(header.as_bytes());
-                            self.stream.write(job_data.as_slice());
-                            self.stream.write(b"\r\n");
-                        },
-                        Command::Delete {id} => {
-                            let id = str::from_utf8(id)
-                                .unwrap()
-                                .parse::<u8>()
-                                .unwrap();
-
-                            match job_queue.delete(&id) {
-                                Some(_) => self.stream.write(b"DELETED\r\n"),
-                                None => self.stream.write(not_found_response),
-                            };
-                        },
-                        Command::Release { id, .. } => {
-                            let id = str::from_utf8(id)
-                                .unwrap()
-                                .parse::<u8>()
-                                .unwrap();
-
-                            match job_queue.release(&id) {
-                                Some(_) => self.stream.write(b"RELEASED\r\n"),
-                                None => self.stream.write(not_found_response),
-                            };
-                        },
-                        Command::Watch { .. } => {
-                            self.stream.write(b"WATCHING 1\r\n");
-                        },
-                        Command::ListTubes {} => {
-                            let tube_list = "default";
-                            self.stream.write(format!(
-                                "OK {}\r\n{}\r\n",
-                                tube_list.len(),
-                                tube_list
-                            ).as_bytes());
-                        },
-                        Command::StatsTube { .. } => {
-                            match job_queue.stats_tube() {
-                                Some(response) => self.stream.write(response.to_string().as_bytes()),
-                                None => self.stream.write(not_found_response),
-                            };
-                        },
-                        Command::Use {tube} => {
-                            self.stream.write(format!("USING {:?}\r\n", tube).as_bytes());
-                        },
-                        Command::PeekReady {} => {
-                            match job_queue.peek_ready() {
-                                Some((id, data)) => {
-                                    self.stream.write(format!(
-                                        "FOUND {} {}\r\n",
-                                        id,
-                                        data.len()
-                                    ).as_bytes());
-                                    self.stream.write(data.as_slice());
-                                    self.stream.write(b"\r\n");
-                                },
-                                None => {
-                                    self.stream.write(not_found_response);
-                                },
-                            };
-                        },
-                        Command::PeekDelayed {} => {
-                            self.stream.write(not_found_response);
-                        },
-                        Command::PeekBuried {} => {
-                            self.stream.write(not_found_response);
-                        },
-                        Command::StatsJob {id} => {
-                            let id = str::from_utf8(id)
-                                .unwrap()
-                                .parse::<u8>()
-                                .unwrap();
-
-                            match job_queue.stats_job(&id) {
-                                Some(response) => {
-                                    self.stream.write(response.to_string().as_bytes());
-                                },
-                                None => {
-                                    self.stream.write(not_found_response);
-                                },
-                            };
-
-                        },
-                    };
-                },
-                IResult::Incomplete(_) => {
-                    debug!("Unable to parse command - incomplete. Trying to read more data.");
-                    continue;
-                },
-                IResult::Error(err) => {
-                    debug!("Protocol error from client: {:?}", err);
-                    break;
-                }
-            };
-
-            buffer = vec![];
-            written = 0;
-        }
-    }
-}
-
-fn main() {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn Error>> {
     pretty_env_logger::init().unwrap();
 
-    let listener = TcpListener::bind("127.0.0.1:11300").unwrap();
+    // Parse the address we're going to run this server on
+    // and set up our TCP listener to accept connections.
+    let addr = env::args().nth(1).unwrap_or("127.0.0.1:8080".to_string());
+    let addr = addr.parse::<SocketAddr>()?;
+    let mut listener = TcpListener::bind(&addr)?;
+    println!("Listening on: {}", addr);
+
+    // Create the shared state of this server that will be shared amongst all
+    // clients. We populate the initial database and then create the `Database`
+    // structure. Note the usage of `Arc` here which will be used to ensure that
+    // each independently spawned client will have a reference to the in-memory
+    // database.
+    let mut initial_db = HashMap::new();
+    initial_db.insert("foo".to_string(), "bar".to_string());
+    let db = Arc::new(Database {
+        map: Mutex::new(initial_db),
+    });
 
     let job_queue = Arc::new(Mutex::new(JobQueue::new()));
 
-    for stream in listener.incoming() {
-        match stream {
-            Err(_) => panic!("error listen"),
-            Ok(stream) => {
-                let job_queue = job_queue.clone();
-                thread::spawn(move || {
-                    debug!("Client connected");
+    loop {
+        match listener.accept().await {
+            Ok((socket, _)) => {
+                // After getting a new connection first we see a clone of the database
+                // being created, which is creating a new reference for this connected
+                // client to use.
+                let db = db.clone();
 
-                    let mut server = Server::new(stream, job_queue);
-                    server.run();
+                // Like with other small servers, we'll `spawn` this client to ensure it
+                // runs concurrently with all other clients. The `move` keyword is used
+                // here to move ownership of our db handle into the async closure.
+                tokio::spawn(async move {
+                    // Since our protocol is line-based we use `tokio_codecs`'s `LineCodec`
+                    // to convert our stream of bytes, `socket`, into a `Stream` of lines
+                    // as well as convert our line based responses into a stream of bytes.
+                    let mut lines = Framed::new(socket, LinesCodec::new());
+
+                    // Here for every line we get back from the `Framed` decoder,
+                    // we parse the request, and if it's valid we generate a response
+                    // based on the values in the database.
+                    while let Some(result) = lines.next().await {
+                        match result {
+                            Ok(line) => {
+                                let response = handle_request(&line, &db);
+
+                                let response = response.serialize();
+
+                                if let Err(e) = lines.send(response).await {
+                                    println!("error on sending response; error = {:?}", e);
+                                }
+                            }
+                            Err(e) => {
+                                println!("error on decoding from socket; error = {:?}", e);
+                            }
+                        }
+                    }
+
+                    // The connection will be closed at this point as `lines.next()` has returned `None`.
                 });
-            },
-        };
+            }
+            Err(e) => println!("error accepting socket; error = {:?}", e),
+        }
     }
 }

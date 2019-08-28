@@ -26,7 +26,7 @@ extern crate env_logger;
 extern crate log;
 
 use std::fmt;
-use std::sync::atomic::{AtomicUsize, Ordering, ATOMIC_USIZE_INIT};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use self::ansi_term::{Color, Style};
 use self::env_logger::LogBuilder;
@@ -46,7 +46,7 @@ impl fmt::Display for Level {
     }
 }
 
-static MAX_MODULE_WIDTH: AtomicUsize = ATOMIC_USIZE_INIT;
+static MAX_MODULE_WIDTH: AtomicUsize = AtomicUsize::new(0);
 
 /// Initializes the global logger with a pretty env logger.
 ///
